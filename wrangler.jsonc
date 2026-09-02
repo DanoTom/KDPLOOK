@@ -15,14 +15,13 @@
     "run_worker_first": ["/api/*"]
   },
 
-  // Create the database with:  npx wrangler d1 create kdplook
-  // then paste the id it prints below. The zeroed id works for `wrangler dev
-  // --local` but a real deploy needs your own.
+  // Points at the "kdplook" D1 database in this Cloudflare account. Recreate it
+  // with `npx wrangler d1 create kdplook` and swap the id if it ever changes.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "kdplook",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "030d4d2a-7088-4d21-9e2d-28086bbff1e0",
       "migrations_dir": "migrations"
     }
   ],
