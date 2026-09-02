@@ -169,6 +169,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/watch/${asin}?marketplace=${encodeURIComponent(marketplace)}`, { method: "DELETE" }),
   refreshWatch: (asins?: string[]) => post<{ ok: boolean; updated: number }>("/api/watch/refresh", { asins }),
 
+  migrate: () => post<{ ok: boolean; statements: number; dbReady: boolean }>("/api/setup/migrate"),
+
   purgeCache: (all = false) => post<{ ok: boolean; removed: number }>(`/api/cache/purge${all ? "?all=1" : ""}`),
   probe: (url: string, kind?: "search" | "product") => post<ProbeResponse>("/api/debug/probe", { url, kind }),
   fetchLog: () => request<HealthInfo["recentFetches"]>("/api/debug/log"),

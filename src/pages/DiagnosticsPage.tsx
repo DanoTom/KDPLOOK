@@ -14,6 +14,7 @@ export function DiagnosticsPage() {
   const [probeUrl, setProbeUrl] = useState("");
   const [probe, setProbe] = useState<ProbeResponse | null>(null);
   const [probing, setProbing] = useState(false);
+  const [migrating, setMigrating] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -26,6 +27,19 @@ export function DiagnosticsPage() {
   }, [toast]);
 
   useEffect(() => { void load(); }, [load]);
+
+  async function migrate() {
+    setMigrating(true);
+    try {
+      const result = await api.migrate();
+      toast(result.dbReady ? "Tablas creadas. Ya puedes usar la app." : "Se ejecutó el esquema pero la base sigue sin responder.", result.dbReady ? "good" : "bad");
+      await load();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "No se pudieron crear las tablas", "bad");
+    } finally {
+      setMigrating(false);
+    }
+  }
 
   async function runProbe() {
     if (!probeUrl.trim()) return;
@@ -79,8 +93,17 @@ export function DiagnosticsPage() {
 
             {!health.dbReady ? (
               <Alert tone="bad">
-                <strong>La base de datos no responde.</strong> Ejecuta las migraciones antes de usar la app:
-                <pre className="code" style={{ marginTop: 8, marginBottom: 0 }}>npx wrangler d1 migrations apply kdplook --remote</pre>
+                <strong>Faltan las tablas de la base de datos.</strong> Créalas con un clic.
+                Todo el esquema son sentencias <code>CREATE ... IF NOT EXISTS</code>, así que
+                repetirlo no borra nada.
+                <div className="row" style={{ marginTop: 10 }}>
+                  <Button variant="primary" loading={migrating} icon={<Icon.Save size={15} />} onClick={migrate}>
+                    Crear las tablas ahora
+                  </Button>
+                </div>
+                <div className="small faint" style={{ marginTop: 10 }}>
+                  Desde la terminal el equivalente es <code>npx wrangler d1 migrations apply kdplook --remote</code>.
+                </div>
               </Alert>
             ) : null}
 

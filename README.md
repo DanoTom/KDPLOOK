@@ -66,6 +66,27 @@ npm run deploy
 
 Wrangler te devuelve una URL `*.workers.dev`. Eso es todo.
 
+### Alternativa: desplegar sin instalar nada
+
+Todo el proceso se puede hacer desde el navegador, incluso desde el móvil:
+
+1. **Panel de Cloudflare → Storage & Databases → D1 SQL Database → Create Database**,
+   con el nombre `kdplook`. Copia el *Database ID* que aparece en la ficha.
+2. **Edita `wrangler.jsonc`** en GitHub (el lápiz de la vista de archivo) y pega
+   ese id donde están los ceros.
+3. **Workers & Pages → Create → Connect to Git**: elige el repositorio y la rama.
+   Build command `npm run build`, deploy command `npx wrangler deploy`.
+4. **Settings → Variables and Secrets** del Worker: añade `AUTH_PASSWORD` y
+   `AUTH_SECRET` como *encrypted*.
+5. Abre la app, entra con tu contraseña, ve a **Diagnóstico** y pulsa
+   **Crear las tablas ahora**.
+
+Ese último paso sustituye a `wrangler d1 migrations apply`: ejecuta el mismo
+archivo `migrations/0001_init.sql` (el Worker lo importa como texto, así que no
+hay dos copias del esquema que puedan divergir). Son todas sentencias
+`CREATE ... IF NOT EXISTS`, el endpoint está detrás de la contraseña, y
+repetirlo no borra nada.
+
 ### Desarrollo local
 
 ```bash

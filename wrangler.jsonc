@@ -32,6 +32,12 @@
     "crons": ["10 6 * * *"]
   },
 
+  // Lets the Worker import the migration file as a string, so the schema can
+  // also be applied from the app's Diagnostics screen.
+  "rules": [
+    { "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }
+  ],
+
   "vars": {
     "APP_NAME": "KDPLOOK"
   }

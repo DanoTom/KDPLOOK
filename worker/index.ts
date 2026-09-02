@@ -18,6 +18,7 @@ import { getMarketplace, marketplaceList, productUrl, searchUrl } from "./amazon
 import { parseSearchPage } from "./amazon/search";
 import { parseProductPage, type ProductDetail } from "./amazon/product";
 import { expandKeywords, type ProbeGroup } from "./amazon/suggest";
+import { schemaStatements } from "./schema";
 
 type AppContext = { Bindings: Env; Variables: { settings: AppSettings } };
 
@@ -577,6 +578,32 @@ app.post("/api/debug/probe", async (c) => {
 });
 
 app.get("/api/debug/log", async (c) => c.json(await recentFetches(c.env, 100)));
+
+/**
+ * Create the schema from inside the app.
+ *
+ * The CLI route (`wrangler d1 migrations apply`) stays the normal one; this
+ * exists so the whole setup can be done from a browser, phone included, without
+ * pasting SQL into a console. Every statement is CREATE ... IF NOT EXISTS, so
+ * running it twice is a no-op and it can never drop data. It sits behind the
+ * password like every other route.
+ */
+app.post("/api/setup/migrate", async (c) => {
+  const statements = schemaStatements();
+  if (!statements.length) return c.json({ error: "No se encontró el esquema" }, 500);
+
+  try {
+    await c.env.DB.batch(statements.map((statement) => c.env.DB.prepare(statement)));
+  } catch (error) {
+    return c.json({
+      error: "No se pudieron crear las tablas",
+      detail: error instanceof Error ? error.message : String(error),
+      hint: "Comprueba que el database_id de wrangler.jsonc apunta a tu base D1.",
+    }, 500);
+  }
+
+  return c.json({ ok: true, statements: statements.length, dbReady: await dbReady(c.env) });
+});
 
 app.all("/api/*", (c) => c.json({ error: "Ruta no encontrada" }, 404));
 
