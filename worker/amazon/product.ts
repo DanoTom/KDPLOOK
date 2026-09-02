@@ -113,9 +113,57 @@ function detailRegion(html: string): string {
  * a detail bullet, and in both cases the value is bounded by the very next
  * closing tag — reading past it would splice the following field onto this one.
  */
+/**
+ * Amazon's "rich product information" widget, which most book pages now use
+ * instead of bullet lists or the attribute table. Each field is a container
+ * tagged with `data-rpi-attribute-name`, and the value sits in a child element
+ * whose class contains `rpi-attribute-value`:
+ *
+ *   <div data-rpi-attribute-name="book_details-publisher" ...>
+ *     <div class="rpi-attribute-label"><span>Publisher</span></div>
+ *     <div class="rpi-attribute-value"><span>Independently published</span></div>
+ *   </div>
+ *
+ * The attribute name carries the `book_details-` prefix on some fields and not
+ * on others, so both spellings are tried.
+ */
+function readRpiField(html: string, names: string[]): string | null {
+  for (const name of names) {
+    for (const attr of [`data-rpi-attribute-name="book_details-${name}"`, `data-rpi-attribute-name="${name}"`]) {
+      const idx = html.indexOf(attr);
+      if (idx < 0) continue;
+      const value = firstMatch(html.slice(idx, idx + 1400), [
+        /class="[^"]*rpi-attribute-value[^"]*"[^>]*>\s*(?:<[a-z][^>]*>\s*)?([^<]{1,220})/i,
+      ]);
+      if (value) return value.trim().slice(0, 220) || null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Find a label as *visible text*, never inside a tag.
+ *
+ * Searching the raw HTML for "Language" also hits attributes such as
+ * `data-rpi-attribute-name="book_details-language"`, and reading the value
+ * after that match yields fragments of markup rather than the field.
+ */
+function findVisibleLabel(region: string, lowerRegion: string, label: string): number {
+  const needle = label.toLowerCase();
+  let from = 0;
+  while (from <= lowerRegion.length) {
+    const idx = lowerRegion.indexOf(needle, from);
+    if (idx < 0) return -1;
+    // Inside a tag when the nearest "<" before the match has not been closed.
+    if (region.lastIndexOf(">", idx) >= region.lastIndexOf("<", idx)) return idx;
+    from = idx + needle.length;
+  }
+  return -1;
+}
+
 function readDetailField(region: string, lowerRegion: string, labels: string[]): string | null {
   for (const label of labels) {
-    const idx = lowerRegion.indexOf(label.toLowerCase());
+    const idx = findVisibleLabel(region, lowerRegion, label);
     if (idx < 0) continue;
     const window = region.slice(idx, idx + 900);
 
@@ -214,13 +262,17 @@ export function parseProductPage(html: string, asin: string): ProductDetail {
   const { bsr, ranks } = extractBsr(html, lowerHtml, detail);
   const { format, label } = extractFormat(html);
 
-  const publisherRaw = readDetailField(detail, lowerDetail, PUBLISHER_LABELS);
+  const publisherRaw =
+    readRpiField(html, ["publisher"]) ?? readDetailField(detail, lowerDetail, PUBLISHER_LABELS);
   // Often written as "Independently published (May 1, 2023)".
   const publisher = publisherRaw
     ? publisherRaw.replace(/\s*\([^)]*\)\s*$/, "").replace(/[;,]\s*$/, "").trim().slice(0, 120) || null
     : null;
 
-  const pubDateRaw = readDetailField(detail, lowerDetail, PUBDATE_LABELS) ?? publisherRaw;
+  const pubDateRaw =
+    readRpiField(html, ["publication_date"]) ??
+    readDetailField(detail, lowerDetail, PUBDATE_LABELS) ??
+    publisherRaw;
   const publishedAt = parseDate(pubDateRaw);
 
   const titleRegion = regionAround(html, ['id="productTitle"', 'id="title"'], 200, 1200) ?? "";
@@ -244,18 +296,23 @@ export function parseProductPage(html: string, asin: string): ProductDetail {
     /<img[^>]*\ssrc="(https:\/\/m\.media-amazon\.com\/images\/[^"]+)"/i,
   ]);
 
+  // Book pages put the price in the buy box, in the format swatches, or both.
   const priceRegion =
-    regionAround(html, ['id="corePriceDisplay', 'id="corePrice_desktop"', 'id="price"', 'class="a-price"'], 300, 3500) ?? "";
+    regionAround(html, [
+      'id="corePriceDisplay', 'id="corePrice_feature_div"', 'id="corePrice_desktop"',
+      'id="price"', 'class="slot-price"', 'class="a-price"',
+    ], 300, 3500) ?? "";
   const price = parsePrice(
     firstMatch(priceRegion, [
       /class="[^"]*a-price[^"]*"[^>]*>\s*<span[^>]*class="[^"]*a-offscreen[^"]*"[^>]*>([^<]+)<\/span>/i,
       /class="[^"]*a-offscreen[^"]*"[^>]*>([^<]+)<\/span>/i,
+      /class="[^"]*slot-price[^"]*"[^>]*>\s*(?:<span[^>]*>\s*)?([^<]+)/i,
       /id="price"[^>]*>([^<]+)</i,
     ]),
   );
 
   const reviewRegion =
-    regionAround(html, ['id="averageCustomerReviews"', 'id="acrPopover"', 'id="acrCustomerReviewText"'], 300, 3000) ?? "";
+    regionAround(html, ['id="averageCustomerReviews"', 'id="acrPopover"', 'id="acrCustomerReviewText"'], 300, 6000) ?? "";
   const rating = parseRating(
     firstMatch(reviewRegion, [
       /id="acrPopover"[^>]*\stitle="([^"]+)"/i,
@@ -265,16 +322,20 @@ export function parseProductPage(html: string, asin: string): ProductDetail {
   const reviews = parseInteger(
     firstMatch(reviewRegion, [
       /id="acrCustomerReviewText"[^>]*>\s*([\d.,\s]+)/i,
-      /([\d.,]+)\s*(?:global ratings|ratings|calificaciones|valoraciones|Bewertungen|[ée]valuations|recensioni|avalia)/i,
+      /([\d.,]+)\s*(?:global ratings?|ratings?|calificaci[óo]n(?:es)?|valoraci[óo]n(?:es)?|rese[ñn]as?|Bewertung(?:en)?|[ée]valuations?|recension[ei]|avalia)/i,
     ]),
   );
 
   const isbnRaw =
-    readDetailField(detail, lowerDetail, ["ISBN-13"]) ?? readDetailField(detail, lowerDetail, ["ISBN-10"]);
+    readRpiField(html, ["isbn13", "isbn10"]) ??
+    readDetailField(detail, lowerDetail, ["ISBN-13"]) ??
+    readDetailField(detail, lowerDetail, ["ISBN-10"]);
   const isbn = isbnRaw ? (isbnRaw.replace(/[^0-9Xx-]/g, "").slice(0, 20) || null) : null;
 
-  const language = readDetailField(detail, lowerDetail, LANGUAGE_LABELS);
-  const dimensions = readDetailField(detail, lowerDetail, DIMENSION_LABELS);
+  const language =
+    readRpiField(html, ["language"]) ?? readDetailField(detail, lowerDetail, LANGUAGE_LABELS);
+  const dimensions =
+    readRpiField(html, ["dimensions"]) ?? readDetailField(detail, lowerDetail, DIMENSION_LABELS);
 
   return {
     asin,
@@ -286,7 +347,9 @@ export function parseProductPage(html: string, asin: string): ProductDetail {
     reviews,
     bsr,
     categoryRanks: ranks,
-    pages: extractPages(detail, lowerDetail),
+    pages:
+      parseInteger(readRpiField(html, ["print_length", "fiona_pages", "ebook_pages"])) ??
+      extractPages(detail, lowerDetail),
     publisher,
     publishedAt,
     language: language ? language.split(/[,;]/)[0].trim().slice(0, 40) : null,

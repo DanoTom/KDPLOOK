@@ -125,6 +125,34 @@ console.log("\nficha de producto (tabla de atributos, en-GB)");
   check("categoria anidada", detail.categoryRanks, [{ name: "Sudoku Puzzles", rank: 312 }]);
 }
 
+console.log("\nficha de producto (widget rich product information)");
+{
+  // Reproduces a real miss: this layout has no detail bullets and no attribute
+  // table, and the field labels also appear inside HTML attributes such as
+  // data-rpi-attribute-name="book_details-dimensions". The old reader matched
+  // those attributes and returned fragments of markup as the value.
+  const detail = parseProductPage(fixture("product-rpi.html"), "B0C1J5GRWQ");
+  check("titulo", detail.title, "Music Coloring Book for Kids Age 4-8: 50 unique pictures to color");
+  check("autor", detail.author, "Sonia Cajigal");
+  check("editorial desde el widget rpi", detail.publisher, "Independently published");
+  check("autopublicado detectado", detail.selfPublished, true);
+  check("fecha desde el widget rpi", detail.publishedAt, "2023-04-18");
+  check("idioma sin prefijo book_details", detail.language, "English");
+  check("dimensiones limpias", detail.dimensions, "8.5 x 0.24 x 11 inches");
+  check("isbn", detail.isbn, "979-8391914471");
+  check("paginas", detail.pages, 102);
+  check("precio desde corePrice_feature_div", detail.price, 6.99);
+  check("una sola resena en singular", detail.reviews, 1);
+  check("valoracion", detail.rating, 5);
+  check("bsr general", detail.bsr, 368524);
+  check("subcategorias", detail.categoryRanks, [
+    { name: "Children's Music Books", rank: 1204 },
+    { name: "Children's Coloring Books", rank: 3891 },
+  ]);
+  truthy("ningun valor arrastra marcado", ![detail.publisher, detail.language, detail.dimensions]
+    .some((v) => v && /[<>"]|rpi-attribute|data-/.test(v)));
+}
+
 console.log("\ndeteccion de bloqueo");
 {
   const captcha =
