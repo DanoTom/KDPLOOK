@@ -189,7 +189,7 @@ export function KeywordsPage() {
               value={seed} onChange={(event) => setSeed(event.target.value)} autoFocus
             />
             <select
-              className="select" style={{ width: 190 }} value={marketplace}
+              className="select select-market" value={marketplace}
               onChange={(event) => updateSettings({ marketplace: event.target.value as typeof marketplace })}
             >
               {marketplaces.map((market) => <option key={market.id} value={market.id}>{market.flag} {market.label}</option>)}

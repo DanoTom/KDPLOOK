@@ -142,7 +142,7 @@ export function NichePage() {
               autoFocus
             />
             <select
-              className="select" style={{ width: 190 }}
+              className="select select-market"
               value={marketplace}
               onChange={(event) => updateSettings({ marketplace: event.target.value as typeof marketplace })}
             >
@@ -303,10 +303,10 @@ function NicheReport({
 
   return (
     <div className="stack-lg">
-      <div className="grid" style={{ gridTemplateColumns: "minmax(280px, 380px) 1fr", alignItems: "stretch" }}>
+      <div className="report-head">
         <Card pad className={`verdict tone-${summary.verdict.tone}`}>
           <Gauge value={summary.opportunityScore} label="Oportunidad" tone={toneForScore(summary.opportunityScore)} />
-          <h2 style={{ marginTop: 14 }}>
+          <h2 style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             {summary.verdict.label}
             <Badge tone={summary.confidence === "high" ? "good" : summary.confidence === "medium" ? "warn" : "neutral"}>
               confianza {summary.confidence === "high" ? "alta" : summary.confidence === "medium" ? "media" : "baja"}

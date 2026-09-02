@@ -178,7 +178,28 @@ a:hover { text-decoration: underline; }
 .topbar-sub { color: var(--text-faint); font-size: 12px; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
-.page { padding: 22px; max-width: 1560px; width: 100%; margin: 0 auto; }
+.page { padding: 22px; max-width: 1560px; width: 100%; margin: 0 auto; min-width: 0; }
+
+/* Verdict panel beside the KPI grid on wide screens, stacked on narrow ones. */
+.report-head {
+  display: grid; gap: 14px; align-items: stretch;
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+}
+/* Without this the nested KPI grid keeps its min-content width and spills out
+   of its track instead of collapsing to a single column. */
+.report-head > * { min-width: 0; }
+@media (max-width: 1020px) {
+  .report-head { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The store picker needs a fixed width to fit "Estados Unidos", but must give
+   that up rather than overflow once the search bar wraps onto its own line. */
+.select-market { width: 190px; }
+@media (max-width: 720px) {
+  .select-market { width: 100%; }
+  .search-bar > .btn, .search-bar > .btn-group { width: 100%; }
+  .search-bar .btn-group button { flex: 1; }
+}
 .page-narrow { max-width: 940px; }
 
 .menu-toggle { display: none; }
@@ -206,14 +227,15 @@ a:hover { text-decoration: underline; }
 }
 .card-pad { padding: 16px 18px; }
 .card-head {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 13px 18px; border-bottom: 1px solid var(--border);
 }
 .card-head h2, .card-head h3 { margin: 0; }
 .card-head .spacer { margin-left: auto; }
 .card-note { color: var(--text-faint); font-size: 12px; }
 
-.grid { display: grid; gap: 14px; }
+.grid { display: grid; gap: 14px; min-width: 0; }
+.grid > * { min-width: 0; }
 .grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .grid-4 { grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); }
