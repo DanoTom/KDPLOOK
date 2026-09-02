@@ -1,0 +1,299 @@
+import type { BookFormat, CategoryRank } from "../../shared/types";
+import { decodeEntities, firstMatch, parseDate, parseInteger, parsePrice, parseRating, stripTags } from "./html";
+
+export interface ProductDetail {
+  asin: string;
+  title: string | null;
+  author: string | null;
+  image: string | null;
+  price: number | null;
+  rating: number | null;
+  reviews: number | null;
+  bsr: number | null;
+  categoryRanks: CategoryRank[];
+  pages: number | null;
+  publisher: string | null;
+  publishedAt: string | null;
+  language: string | null;
+  isbn: string | null;
+  dimensions: string | null;
+  format: BookFormat | null;
+  formatLabel: string | null;
+  selfPublished: boolean | null;
+}
+
+/**
+ * Amazon detail pages weigh 1-2 MB, most of it inline JavaScript. Running a
+ * dozen regexes across all of that burns the Worker CPU budget, so every
+ * extractor below first narrows to a small window located with `indexOf`
+ * (a native substring search) and only then applies patterns.
+ */
+function regionAround(html: string, needles: string[], before = 400, after = 4000): string | null {
+  for (const needle of needles) {
+    const idx = html.indexOf(needle);
+    if (idx >= 0) return html.slice(Math.max(0, idx - before), Math.min(html.length, idx + after));
+  }
+  return null;
+}
+
+function regionAroundCI(html: string, lowerHtml: string, needles: string[], before = 200, after = 2400): string | null {
+  for (const needle of needles) {
+    const idx = lowerHtml.indexOf(needle.toLowerCase());
+    if (idx >= 0) return html.slice(Math.max(0, idx - before), Math.min(html.length, idx + after));
+  }
+  return null;
+}
+
+const BSR_LABELS = [
+  "Best Sellers Rank",
+  "Best-sellers rank",
+  "Amazon Best Sellers Rank",
+  "Clasificación en los más vendidos",
+  "Amazon Bestseller-Rang",
+  "Classement des meilleures ventes",
+  "Posizione nella classifica Bestseller",
+  "Ranking dos mais vendidos",
+  "Plaats in bestsellerlijst",
+];
+
+const PAGES_LABELS = ["Print length", "Número de páginas", "Longitud de impresión", "Páginas", "Seitenzahl der Print-Ausgabe", "Nombre de pages", "Lunghezza stampa", "Aantal pagina"];
+const PUBLISHER_LABELS = ["Publisher", "Editorial", "Herausgeber", "Éditeur", "Editeur", "Editore", "Editora", "Uitgever"];
+const PUBDATE_LABELS = ["Publication date", "Fecha de publicación", "Erscheinungstermin", "Date de publication", "Data di pubblicazione", "Data de publicação", "Publicatiedatum"];
+const LANGUAGE_LABELS = ["Language", "Idioma", "Sprache", "Langue", "Lingua", "Taal"];
+const DIMENSION_LABELS = ["Product Dimensions", "Dimensions", "Dimensiones del producto", "Dimensiones", "Produktabmessungen", "Dimensions du produit", "Dimensioni"];
+
+const SELF_PUBLISHED_RE =
+  /independently published|publicaci[óo]n independiente|independiente|createspace|kindle direct publishing|amazon digital services|amazon\.com services|self[- ]published|autopublicado|selbstverlag|books on demand|lulu\.com|bookbaby|draft2digital|ingramspark/i;
+
+/**
+ * Collect the detail widgets. Which one exists depends on the A/B bucket, so
+ * we concatenate whichever are present and parse their union.
+ */
+function detailRegion(html: string): string {
+  const WIDGET_LENGTH = 14000;
+  const spans: Array<[number, number]> = [];
+  for (const id of [
+    'id="detailBulletsWrapper_feature_div"',
+    'id="detailBullets_feature_div"',
+    'id="productDetails_detailBullets_sections1"',
+    'id="productDetails_techSpec_section_1"',
+    'id="productDetailsTable"',
+    'id="richProductInformation_feature_div"',
+    'id="detailBullets"',
+    'id="prodDetails"',
+  ]) {
+    const idx = html.indexOf(id);
+    if (idx >= 0) spans.push([idx, Math.min(html.length, idx + WIDGET_LENGTH)]);
+    if (spans.length >= 4) break;
+  }
+
+  if (spans.length) {
+    // These widgets nest inside one another, so naively concatenating their
+    // slices would feed the same sales-rank block to the parser twice. Merge
+    // the overlapping ranges first and emit each byte at most once.
+    spans.sort((a, b) => a[0] - b[0]);
+    const merged: Array<[number, number]> = [spans[0]];
+    for (const [start, end] of spans.slice(1)) {
+      const last = merged[merged.length - 1];
+      if (start <= last[1]) last[1] = Math.max(last[1], end);
+      else merged.push([start, end]);
+    }
+    return merged.map(([start, end]) => html.slice(start, end)).join("\n");
+  }
+
+  // No known widget id: fall back to a window around the sales-rank label,
+  // which sits inside whatever detail block the page is using.
+  const lower = html.toLowerCase();
+  const fallback = regionAroundCI(html, lower, BSR_LABELS, 9000, 6000);
+  return fallback ?? html.slice(0, 60000);
+}
+
+/**
+ * Read one "label: value" pair. Amazon renders these as either a table row or
+ * a detail bullet, and in both cases the value is bounded by the very next
+ * closing tag — reading past it would splice the following field onto this one.
+ */
+function readDetailField(region: string, lowerRegion: string, labels: string[]): string | null {
+  for (const label of labels) {
+    const idx = lowerRegion.indexOf(label.toLowerCase());
+    if (idx < 0) continue;
+    const window = region.slice(idx, idx + 900);
+
+    // <th>Label</th><td>value</td>
+    const cell = /^[\s\S]{0,160}?<\/th>\s*<td[^>]*>([\s\S]{0,400}?)<\/td>/i.exec(window);
+    const fromCell = cell ? stripTags(cell[1]) : "";
+    if (fromCell) return fromCell.slice(0, 220);
+
+    // <span class="a-text-bold">Label : </span> <span>value</span>
+    const bullet = /^[\s\S]{0,160}?<\/span>\s*<span[^>]*>([\s\S]{0,400}?)<\/span>/i.exec(window);
+    const fromBullet = bullet ? stripTags(bullet[1]) : "";
+    if (fromBullet) return fromBullet.slice(0, 220);
+
+    // Last resort for unknown markup: take the text right after the label and
+    // cut it at the first tag boundary so it cannot run into the next field.
+    const plain = stripTags(window.slice(0, window.indexOf("<", label.length) + 1 || 300));
+    const after = plain.slice(label.length).replace(/^[\s:\u200e\u200f]+/, "").trim();
+    if (after) return after.slice(0, 220);
+  }
+  return null;
+}
+
+function extractBsr(html: string, lowerHtml: string, detail: string): { bsr: number | null; ranks: CategoryRank[] } {
+  const lowerDetail = detail.toLowerCase();
+  let block: string | null = null;
+  for (const label of BSR_LABELS) {
+    const idx = lowerDetail.indexOf(label.toLowerCase());
+    if (idx >= 0) { block = detail.slice(idx, idx + 2400); break; }
+  }
+  if (!block) block = regionAroundCI(html, lowerHtml, BSR_LABELS, 0, 2400);
+  if (!block) return { bsr: null, ranks: [] };
+
+  const text = stripTags(block)
+    // "(See Top 100 in Books)" reads like a rank phrase but is navigation.
+    .replace(/\(\s*(?:see|ver|voir|siehe|vedi|veja)[^)]*\)/gi, " ")
+    .replace(/\s+/g, " ");
+
+  // "#3,024 in Books", "n.º 3.024 en Libros", "Nr. 3.024 in Bücher" — and on some
+  // storefronts the store-wide rank arrives with no "#" at all ("142,905 in Books").
+  const rankRe = /(?:#|n\.?\s?[ºo°]\s?|nr\.?\s?)?\s*([\d][\d.,\s]{0,12})\s+(?:in|en|dans|nella|nei|na|em|i)\s+([^#\n]{2,70}?)(?=\s*(?:#|n\.?\s?[ºo°]\s|nr\.?\s|$))/gi;
+  const ranks: CategoryRank[] = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = rankRe.exec(text)) !== null) {
+    const rank = parseInteger(m[1]);
+    const name = decodeEntities(m[2]).replace(/\s+/g, " ").replace(/[.,;:]\s*$/, "").trim();
+    if (!rank || !name || rank >= 50_000_000) continue;
+    const key = `${name.toLowerCase()}|${rank}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ranks.push({ name, rank });
+    if (ranks.length >= 8) break;
+  }
+  if (!ranks.length) return { bsr: null, ranks: [] };
+  return { bsr: ranks[0].rank, ranks: ranks.slice(1) };
+}
+
+function extractPages(detail: string, lowerDetail: string): number | null {
+  const raw = readDetailField(detail, lowerDetail, PAGES_LABELS);
+  const fromLabel = parseInteger(raw?.match(/[\d.,]+/)?.[0] ?? null);
+  if (fromLabel && fromLabel > 0 && fromLabel < 20000) return fromLabel;
+
+  const loose = firstMatch(detail, [/([\d.,]{1,7})\s*(?:pages|páginas|Seiten|pagine|pagina's)\b/i]);
+  const value = parseInteger(loose);
+  return value && value > 0 && value < 20000 ? value : null;
+}
+
+const FORMAT_TABLE: Array<[RegExp, BookFormat]> = [
+  [/hardcover|tapa dura|gebundene|reli[ée]|copertina rigida|capa dura/i, "hardcover"],
+  [/mass market paperback|paperback|tapa blanda|taschenbuch|broch[ée]|copertina flessibile|capa comum/i, "paperback"],
+  [/kindle/i, "kindle"],
+  [/audible|audiobook|audiolibro|h[öo]rbuch/i, "audible"],
+  [/spiral/i, "spiral"],
+  [/board book/i, "board"],
+];
+
+function extractFormat(html: string): { format: BookFormat | null; label: string | null } {
+  const region =
+    regionAround(html, ['id="productSubtitle"', 'id="tmmSwatches"', 'id="formats"'], 200, 3000) ?? "";
+  const label = firstMatch(region, [
+    /id="productSubtitle"[^>]*>([^<]{3,60})</i,
+    /class="[^"]*a-button-selected[^"]*"[\s\S]{0,500}?<span[^>]*class="[^"]*slot-title[^"]*"[^>]*>\s*<span[^>]*>([^<]{3,40})<\/span>/i,
+  ]);
+  const haystack = label ?? region;
+  for (const [re, format] of FORMAT_TABLE) {
+    if (re.test(haystack)) return { format, label: label?.trim() ?? null };
+  }
+  return { format: null, label: label?.trim() ?? null };
+}
+
+export function parseProductPage(html: string, asin: string): ProductDetail {
+  const lowerHtml = html.toLowerCase();
+  const detail = detailRegion(html);
+  const lowerDetail = detail.toLowerCase();
+
+  const { bsr, ranks } = extractBsr(html, lowerHtml, detail);
+  const { format, label } = extractFormat(html);
+
+  const publisherRaw = readDetailField(detail, lowerDetail, PUBLISHER_LABELS);
+  // Often written as "Independently published (May 1, 2023)".
+  const publisher = publisherRaw
+    ? publisherRaw.replace(/\s*\([^)]*\)\s*$/, "").replace(/[;,]\s*$/, "").trim().slice(0, 120) || null
+    : null;
+
+  const pubDateRaw = readDetailField(detail, lowerDetail, PUBDATE_LABELS) ?? publisherRaw;
+  const publishedAt = parseDate(pubDateRaw);
+
+  const titleRegion = regionAround(html, ['id="productTitle"', 'id="title"'], 200, 1200) ?? "";
+  const title = firstMatch(titleRegion, [
+    /id="productTitle"[^>]*>([\s\S]{1,500}?)<\/span>/i,
+    /<h1[^>]*id="title"[^>]*>([\s\S]{1,500}?)<\/h1>/i,
+  ]) ?? firstMatch(html.slice(0, 3000), [/<title>([^<]{3,300})<\/title>/i]);
+
+  const bylineRegion = regionAround(html, ['id="bylineInfo"', 'class="author'], 200, 2500) ?? "";
+  const author = firstMatch(bylineRegion, [
+    /class="[^"]*contributorNameID[^"]*"[^>]*>([^<]{2,80})<\/a>/i,
+    /class="author[^"]*"[\s\S]{0,400}?<a[^>]*>([^<]{2,80})<\/a>/i,
+    /id="bylineInfo"[\s\S]{0,500}?<a[^>]*>([^<]{2,80})<\/a>/i,
+  ]);
+
+  const imageRegion = regionAround(html, ['id="landingImage"', 'id="imgBlkFront"', 'id="imgTagWrapperId"', '"hiRes"'], 400, 3000) ?? "";
+  const image = firstMatch(imageRegion, [
+    /data-old-hires="(https:\/\/[^"]+)"/i,
+    /"hiRes":"(https:\/\/m\.media-amazon\.com\/images\/[^"]+)"/i,
+    /"large":"(https:\/\/m\.media-amazon\.com\/images\/[^"]+)"/i,
+    /<img[^>]*\ssrc="(https:\/\/m\.media-amazon\.com\/images\/[^"]+)"/i,
+  ]);
+
+  const priceRegion =
+    regionAround(html, ['id="corePriceDisplay', 'id="corePrice_desktop"', 'id="price"', 'class="a-price"'], 300, 3500) ?? "";
+  const price = parsePrice(
+    firstMatch(priceRegion, [
+      /class="[^"]*a-price[^"]*"[^>]*>\s*<span[^>]*class="[^"]*a-offscreen[^"]*"[^>]*>([^<]+)<\/span>/i,
+      /class="[^"]*a-offscreen[^"]*"[^>]*>([^<]+)<\/span>/i,
+      /id="price"[^>]*>([^<]+)</i,
+    ]),
+  );
+
+  const reviewRegion =
+    regionAround(html, ['id="averageCustomerReviews"', 'id="acrPopover"', 'id="acrCustomerReviewText"'], 300, 3000) ?? "";
+  const rating = parseRating(
+    firstMatch(reviewRegion, [
+      /id="acrPopover"[^>]*\stitle="([^"]+)"/i,
+      /class="[^"]*a-icon-alt[^"]*"[^>]*>([^<]+)<\/span>/i,
+    ]),
+  );
+  const reviews = parseInteger(
+    firstMatch(reviewRegion, [
+      /id="acrCustomerReviewText"[^>]*>\s*([\d.,\s]+)/i,
+      /([\d.,]+)\s*(?:global ratings|ratings|calificaciones|valoraciones|Bewertungen|[ée]valuations|recensioni|avalia)/i,
+    ]),
+  );
+
+  const isbnRaw =
+    readDetailField(detail, lowerDetail, ["ISBN-13"]) ?? readDetailField(detail, lowerDetail, ["ISBN-10"]);
+  const isbn = isbnRaw ? (isbnRaw.replace(/[^0-9Xx-]/g, "").slice(0, 20) || null) : null;
+
+  const language = readDetailField(detail, lowerDetail, LANGUAGE_LABELS);
+  const dimensions = readDetailField(detail, lowerDetail, DIMENSION_LABELS);
+
+  return {
+    asin,
+    title: title ? stripTags(title).replace(/\s*[:|-]\s*Amazon\..*$/i, "").slice(0, 400) : null,
+    author: author ? decodeEntities(author).trim() : null,
+    image,
+    price,
+    rating,
+    reviews,
+    bsr,
+    categoryRanks: ranks,
+    pages: extractPages(detail, lowerDetail),
+    publisher,
+    publishedAt,
+    language: language ? language.split(/[,;]/)[0].trim().slice(0, 40) : null,
+    isbn,
+    dimensions: dimensions ? dimensions.slice(0, 80) : null,
+    format,
+    formatLabel: label,
+    selfPublished: publisher ? SELF_PUBLISHED_RE.test(publisher) : null,
+  };
+}

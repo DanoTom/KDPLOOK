@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kdplook",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true },
+
+  // Static SPA (built by Vite into ./dist) served straight from the edge.
+  // `run_worker_first` keeps the API routes reaching the Worker instead of
+  // being swallowed by the single-page-application fallback.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Create the database with:  npx wrangler d1 create kdplook
+  // then paste the id it prints below. The zeroed id works for `wrangler dev
+  // --local` but a real deploy needs your own.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kdplook",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Daily BSR snapshot for everything on the watchlist (06:10 UTC).
+  "triggers": {
+    "crons": ["10 6 * * *"]
+  },
+
+  "vars": {
+    "APP_NAME": "KDPLOOK"
+  }
+}

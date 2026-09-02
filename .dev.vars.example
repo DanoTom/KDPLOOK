@@ -1,0 +1,14 @@
+# Copy to `.dev.vars` for local development (the real file is git-ignored).
+# In production these are Cloudflare secrets, set with `npx wrangler secret put NAME`.
+
+# Password gate. Leave unset and the app is open to anyone with the URL.
+AUTH_PASSWORD = "change-me"
+
+# Signing key for the session cookie. Any long random string; falls back to
+# AUTH_PASSWORD when absent.
+AUTH_SECRET = "a-long-random-string-used-only-for-signing"
+
+# Optional scraping providers, used only when selected in Settings.
+# SCRAPER_API_KEY = ""
+# SCRAPINGBEE_API_KEY = ""
+# CUSTOM_PROXY_TEMPLATE = "https://my-proxy.example/get?target={url_encoded}"
