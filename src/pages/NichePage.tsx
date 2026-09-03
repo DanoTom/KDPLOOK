@@ -322,7 +322,9 @@ function NicheReport({
         <div className="grid grid-3" style={{ alignContent: "start" }}>
           <Kpi
             label="Demanda" value={summary.demandScore} tone={toneForScore(summary.demandScore)}
-            sub={summary.avgSalesPerMonth !== null ? `${fmtInt(summary.avgSalesPerMonth)} ventas/mes de media` : "sin datos de BSR"}
+            sub={summary.medianSalesPerMonth !== null
+              ? `${fmtInt(summary.medianSalesPerMonth)} ventas/mes (mediana) · ${fmtInt(summary.avgSalesPerMonth)} de media`
+              : "sin datos de BSR"}
           />
           <Kpi
             label="Competencia" value={summary.competitionScore} tone={toneForCompetition(summary.competitionScore)}

@@ -160,12 +160,15 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     : null;
 
   const avgSales = mean(sales);
+  const medianSales = median(sales);
   const medianReviews = median(reviews);
   const medianBsr = median(bsrs);
 
   // --- demand ---------------------------------------------------------------
-  let demand = avgSales !== null ? curve(avgSales, DEMAND_ANCHORS) : 0;
-  if (avgSales === null && medianBsr !== null) {
+  // The median, not the mean: one runaway bestseller among the results would
+  // otherwise make a slow niche look like a busy one.
+  let demand = medianSales !== null ? curve(medianSales, DEMAND_ANCHORS) : 0;
+  if (medianSales === null && medianBsr !== null) {
     // No royalty data but we do have ranks: fall back to a BSR-only read.
     demand = curve(1 / Math.max(1, medianBsr / 50_000), [[0, 0], [0.1, 15], [0.5, 40], [1, 60], [3, 80], [10, 95]]);
   }
@@ -221,6 +224,7 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     medianReviews: round(medianReviews, 0),
     medianBsr: round(medianBsr, 0),
     avgSalesPerMonth: round(avgSales, 1),
+    medianSalesPerMonth: round(medianSales, 1),
     avgRevenuePerMonth: round(mean(revenues), 2),
     totalRevenuePerMonth: revenues.length ? round(revenues.reduce((a, b) => a + b, 0), 2) : null,
     selfPublishedShare: round(selfPublishedShare, 3),
@@ -245,9 +249,9 @@ function buildSignals(s: NicheSummary, settings: AppSettings, currency: string):
   signals.push({
     id: "demand",
     label: "Demanda",
-    value: s.avgSalesPerMonth !== null ? `${Math.round(s.avgSalesPerMonth)} ventas/mes (top 20)` : "sin datos de BSR",
+    value: s.medianSalesPerMonth !== null ? `${Math.round(s.medianSalesPerMonth)} ventas/mes (mediana)` : "sin datos de BSR",
     tone: s.demandScore >= 65 ? "good" : s.demandScore >= 40 ? "warn" : "bad",
-    hint: "Media de ventas mensuales estimadas de los primeros resultados orgánicos.",
+    hint: "Mediana de ventas mensuales estimadas del top orgánico. Se usa la mediana porque una sola superventa distorsiona la media.",
   });
 
   signals.push({
@@ -315,7 +319,7 @@ function buildVerdict(s: NicheSummary, settings: AppSettings): Verdict {
   const score = s.opportunityScore;
   // Demand rests entirely on BSR. Without it there is nothing to say, and
   // saying "low demand" would report a scraping failure as a market finding.
-  const hasDemandData = s.avgSalesPerMonth !== null || s.medianBsr !== null;
+  const hasDemandData = s.medianSalesPerMonth !== null || s.medianBsr !== null;
 
   if (!hasDemandData) {
     reasoning.push(
@@ -323,7 +327,7 @@ function buildVerdict(s: NicheSummary, settings: AppSettings): Verdict {
       "esto es un bloqueo de Amazon, no una señal del nicho. Reintenta más tarde o baja el paralelismo en Ajustes.",
     );
   } else if (s.demandScore >= 65) {
-    reasoning.push(`Hay demanda real: los primeros puestos venden ~${Math.round(s.avgSalesPerMonth ?? 0)} unidades/mes estimadas.`);
+    reasoning.push(`Hay demanda real: la mediana del top vende ~${Math.round(s.medianSalesPerMonth ?? 0)} unidades/mes estimadas.`);
   } else if (s.demandScore >= 40) {
     reasoning.push("Demanda moderada: se vende, pero no esperes volumen alto desde el día uno.");
   } else {

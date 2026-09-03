@@ -93,15 +93,25 @@ export async function fetchSuggestions(
   prefix: string,
   department: "print" | "kindle" | "all",
 ): Promise<string[]> {
-  const outcome = await fetchPage(env, settings, suggestUrl(marketplace, prefix, department), {
-    language: marketplace.language,
-    json: true,
-    attempts: 2,
-    timeoutMs: 9000,
-  });
-  if (!outcome.ok) return [];
+  // Try the shared host first; only if it yields nothing, try the storefront's
+  // own. One host being wrong should degrade the result, never empty it.
+  for (const variant of ["shared", "regional"] as const) {
+    const outcome = await fetchPage(env, settings, suggestUrl(marketplace, prefix, department, variant), {
+      language: marketplace.language,
+      json: true,
+      attempts: variant === "shared" ? 2 : 1,
+      timeoutMs: 9000,
+    });
+    if (!outcome.ok) continue;
+    const values = readSuggestions(outcome.body);
+    if (values.length) return values;
+  }
+  return [];
+}
+
+function readSuggestions(body: string): string[] {
   try {
-    const data = JSON.parse(outcome.body) as SuggestionApiResponse;
+    const data = JSON.parse(body) as SuggestionApiResponse;
     return (data.suggestions ?? [])
       .filter((s) => s && typeof s.value === "string" && !s.ghost)
       .map((s) => (s.value as string).trim().toLowerCase())

@@ -62,7 +62,12 @@ export function productUrl(m: Marketplace, asin: string): string {
 }
 
 /** Public endpoint that powers the search box's dropdown. */
-export function suggestUrl(m: Marketplace, prefix: string, department: "print" | "kindle" | "all" = "print"): string {
+export function suggestUrl(
+  m: Marketplace,
+  prefix: string,
+  department: "print" | "kindle" | "all" = "print",
+  variant: "shared" | "regional" = "shared",
+): string {
   const alias = department === "kindle" ? m.kindleAlias : department === "print" ? m.booksAlias : "aps";
   const params = new URLSearchParams({
     "limit": "11",
@@ -83,9 +88,11 @@ export function suggestUrl(m: Marketplace, prefix: string, department: "print" |
     "plain-mid": "1",
     "client-info": "amazon-search-ui",
   });
-  // Each storefront has its own completion host; the US one answers in English
-  // whatever locale you ask it for.
-  const host = m.host.replace(/^www\./, "completion.");
+  // completion.amazon.com serves every storefront; `mid` and `lop` select which
+  // one and in what language. Routing to a per-store host was a guess that
+  // returned nothing at all, so the shared host is the default and the regional
+  // one is only a fallback.
+  const host = variant === "regional" ? m.host.replace(/^www\./, "completion.") : "completion.amazon.com";
   return `https://${host}/api/2017/suggestions?${params.toString()}`;
 }
 

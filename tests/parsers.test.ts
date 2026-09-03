@@ -18,6 +18,7 @@ import { parseDate, parseInteger, parsePrice } from "../worker/amazon/html";
 import { calibrationFor, salesPerMonth, suggestCalibration } from "../shared/analytics/bsr";
 import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost } from "../shared/analytics/royalty";
 import { buildEntryPlan } from "../shared/analytics/entry";
+import { summariseNiche } from "../shared/analytics/score";
 import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -219,9 +220,11 @@ console.log("\nautocompletado por tienda");
 {
   // The US completion host answers in English whatever locale it is asked for,
   // which is why the keyword lab suggested English phrases on amazon.es.
-  truthy("espana usa su propio host", suggestUrl(getMarketplace("es"), "sudoku").startsWith("https://completion.amazon.es/"));
-  truthy("reino unido usa el suyo", suggestUrl(getMarketplace("co.uk"), "sudoku").startsWith("https://completion.amazon.co.uk/"));
-  truthy("estados unidos sigue igual", suggestUrl(getMarketplace("com"), "sudoku").startsWith("https://completion.amazon.com/"));
+  // The shared host serves every storefront; `mid` and `lop` pick which.
+  truthy("por defecto va al host compartido", suggestUrl(getMarketplace("es"), "sudoku").startsWith("https://completion.amazon.com/"));
+  truthy("el host regional queda como alternativa",
+    suggestUrl(getMarketplace("es"), "sudoku", "print", "regional").startsWith("https://completion.amazon.es/"));
+  truthy("se envia el mercado espanol", suggestUrl(getMarketplace("es"), "sudoku").includes("mid=A1RKKUPIHCS9HS"));
   truthy("se pide el locale de la tienda", suggestUrl(getMarketplace("es"), "sudoku").includes("lop=es_ES"));
 }
 
@@ -342,6 +345,36 @@ console.log("\nplan de entrada");
   });
   check("sin BSR no se inventa un plan", blind.feasibility, "sin datos");
   check("sin BSR no hay objetivo de ventas", blind.targetSalesPerMonth, null);
+}
+
+console.log("\ndemanda con resultados sesgados");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const make = (position: number, sales: number): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `T${position}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 12, rating: 4.4, reviews: 5,
+    sponsored: false, kindleUnlimited: false, position, bsr: 50_000, categoryRanks: [], pages: 120,
+    publisher: null, publishedAt: null, language: null, isbn: null, dimensions: null,
+    selfPublished: null, enriched: true, salesPerMonth: sales, revenuePerMonth: sales * 3,
+    royaltyPerUnit: 3, ageMonths: 6, weakness: 60,
+  });
+
+  // Eighteen slow titles and two runaway bestsellers: the mean says the niche
+  // is busy, the median says what a new entrant would actually face.
+  const skewed = [
+    ...Array.from({ length: 18 }, (_, i) => make(i + 1, 12)),
+    make(19, 2400), make(20, 3000),
+  ];
+  const summary = summariseNiche(skewed, {
+    keyword: "agenda docente", marketplace: "es", settings, totalResults: 10_000, resultsCountText: null,
+  });
+
+  check("la mediana ignora las superventas", summary.medianSalesPerMonth, 12);
+  truthy("la media si se dispara (280 frente a 12)", (summary.avgSalesPerMonth ?? 0) > 250);
+  truthy("la demanda se puntua por la mediana, no por la media", summary.demandScore < 50);
 }
 
 console.log("\nregalias");

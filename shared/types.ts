@@ -88,6 +88,7 @@ export interface NicheSummary {
   medianReviews: number | null;
   medianBsr: number | null;
   avgSalesPerMonth: number | null;
+  medianSalesPerMonth: number | null;
   avgRevenuePerMonth: number | null;
   totalRevenuePerMonth: number | null;
   selfPublishedShare: number | null;   // 0-1
