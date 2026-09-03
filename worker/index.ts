@@ -751,6 +751,11 @@ function analysePage(
     noResults: parsed.noResults,
     pageHint: parsed.pageHint,
     firstItems: parsed.items.slice(0, 5),
+    // Only worth carrying when a field on that card came back empty; otherwise
+    // it is four kilobytes of markup nobody needs to read.
+    firstCard: parsed.items.some((i) => i.reviews === null || i.rating === null || i.price === null)
+      ? parsed.firstCard
+      : undefined,
   };
 }
 

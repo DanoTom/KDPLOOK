@@ -786,6 +786,36 @@ console.log("\nrutas cercanas a una frase");
   truthy("el plural sobrevive al recorte", long.includes("libro actividades ninos pequeno especiales"));
 }
 
+console.log("\nrecuento de resultados y tarjetas contadas");
+{
+  const es = getMarketplace("es");
+  const card = (asin: string) =>
+    `<div role="listitem" data-asin="${asin}" data-component-type="s-search-result" class="s-result-item">` +
+    `<h2 aria-label="Libro ${asin}"><span>Libro ${asin}</span></h2></div>`;
+  const many = `<div class="s-main-slot">${Array.from({ length: 20 }, (_, i) => card(`B0${String(i).padStart(8, "0")}`)).join("")}</div>`;
+
+  // The diagnostic exists to say how much was on the page. Reporting the slice
+  // instead made it say how much was asked for — during a diagnosis of whether
+  // Amazon was serving short pages, which is the worst possible time.
+  const capped = parseSearchPage(many, es, 0, 8);
+  check("cuenta todas las tarjetas, no solo las pedidas", capped.rawItemCount, 20);
+  check("pero solo devuelve las pedidas", capped.items.length, 8);
+
+  // The count survives a layout with none of the usual anchors, read as text.
+  const plain =
+    `<div class="s-main-slot"><div class="a-section">1-16 de más de 2.000 resultados para "agenda"</div>` +
+    card("B0AAAAAAAA") + `</div>`;
+  const counted = parseSearchPage(plain, es);
+  check("lee el recuento aunque no haya barra de información", counted.totalResults, 2000);
+  // "results?" ahead of "resultados" in the alternation used to match "result"
+  // inside the Spanish word and hand back a truncated phrase.
+  check("y conserva la frase entera", counted.resultsCountText, "2.000 resultados");
+
+  // One whole card comes back only while something on it is unread.
+  truthy("devuelve una tarjeta entera cuando falta algún campo", Boolean(counted.firstCard));
+  truthy("y es la tarjeta, no la página", (counted.firstCard ?? "").startsWith("<div"));
+}
+
 console.log("\nprecio tachado frente a precio real");
 {
   const es = getMarketplace("es");

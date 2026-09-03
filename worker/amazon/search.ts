@@ -3,6 +3,15 @@ import { allMatches, decodeEntities, firstMatch, parseInteger, parsePrice, parse
 
 export interface SearchPageResult {
   items: BookRecord[];
+  /**
+   * The markup of the first result card, for diagnosis only.
+   *
+   * When a field comes back null the question is always the same — is the value
+   * absent from the card, or present in a shape these extractors no longer
+   * recognise? One whole card answers it; anchor-by-anchor excerpts only
+   * confirm what was already suspected.
+   */
+  firstCard?: string;
   totalResults: number | null;
   resultsCountText: string | null;
   rawItemCount: number;
@@ -225,6 +234,25 @@ function extractReviews(block: string): number | null {
   return null;
 }
 
+/**
+ * "1-16 de más de 2.000 resultados", in whatever markup Amazon is using today.
+ *
+ * The count moves between an info bar, an h1 and a plain span depending on the
+ * storefront and the week, so the shapes below are tried first and then the
+ * text itself is read: stripping the tags off the top of the results area and
+ * looking for the sentence survives a layout change that any selector loses to.
+ */
+/**
+ * The word for "results" per storefront, longest first.
+ *
+ * Order matters in an alternation: with `results?` ahead of `resultados`, the
+ * engine matches "result" inside the Spanish word and the phrase comes back
+ * truncated to "2.000 result".
+ */
+const RESULTS_WORD = "resultados|resultaten|r[ée]sultats|risultati|Ergebnisse|avalia[çc][õo]es|results?";
+
+const COUNT_SENTENCE_RE = new RegExp(`([\\d][\\d.,\\s]{0,15})\\s*(?:${RESULTS_WORD})`, "i");
+
 function extractResultsCount(html: string): { total: number | null; text: string | null } {
   const region =
     /data-component-type="s-result-info-bar"([\s\S]{0,3000})/i.exec(html)?.[1] ??
@@ -232,11 +260,22 @@ function extractResultsCount(html: string): { total: number | null; text: string
     html.slice(0, 40000);
 
   const text = stripTags(
-    /<span[^>]*>([^<]*(?:results?|resultados|Ergebnisse|r[ée]sultats|risultati|resultaten)[^<]*)<\/span>/i.exec(region)?.[1] ??
-      /(\d[\d.,\s]*\s*(?:results?|resultados|Ergebnisse|r[ée]sultats|risultati))/i.exec(stripTags(region))?.[1] ??
+    new RegExp(`<span[^>]*>([^<]*(?:${RESULTS_WORD})[^<]*)</span>`, "i").exec(region)?.[1] ??
+      new RegExp(`(\\d[\\d.,\\s]*\\s*(?:${RESULTS_WORD}))`, "i").exec(stripTags(region))?.[1] ??
       "",
   );
-  if (!text) return { total: null, text: null };
+  if (!text) {
+    // Nothing matched the known shapes: read the opening of the results area as
+    // plain text and look for the sentence itself.
+    const plain = stripTags(trimToResultList(html).slice(0, 8000)).replace(/\s+/g, " ");
+    const sentence = COUNT_SENTENCE_RE.exec(plain);
+    if (!sentence) return { total: null, text: null };
+    const around = plain.slice(Math.max(0, sentence.index - 30), sentence.index + sentence[0].length);
+    const found = (around.match(/[\d][\d.,]*/g) ?? [])
+      .map((n) => parseInteger(n))
+      .filter((n): n is number => n !== null);
+    return { total: found.length ? Math.max(...found) : null, text: around.trim().slice(0, 120) };
+  }
 
   // "1-16 of over 40,000 results" — the biggest number in the phrase is the total.
   const numbers = (text.match(/[\d][\d.,\s]*/g) ?? [])
@@ -288,7 +327,11 @@ export function parseSearchPage(
   maxItems = 60,
 ): SearchPageResult {
   const { total, text } = extractResultsCount(html);
-  const blocks = splitResultBlocks(trimToResultList(html)).slice(0, maxItems);
+  // Count every card the page holds before capping: `rawItemCount` exists to
+  // answer "how much was on the page", and slicing first made it answer "how
+  // much was asked for" — which is what it reported during a diagnosis.
+  const allBlocks = splitResultBlocks(trimToResultList(html));
+  const blocks = allBlocks.slice(0, maxItems);
   const items: BookRecord[] = [];
   let position = startPosition;
 
@@ -336,12 +379,13 @@ export function parseSearchPage(
 
   return {
     items,
+    firstCard: allBlocks.length ? allBlocks[0].block.slice(0, 4000) : undefined,
     totalResults: total,
     resultsCountText: text,
-    rawItemCount: blocks.length,
+    rawItemCount: allBlocks.length,
     // Only worth asking when nothing came back; a page full of books is an
     // answer already, and both of these cost a pass over the markup.
-    noResults: blocks.length === 0 && NO_RESULTS_RE.test(html),
-    pageHint: blocks.length === 0 ? extractPageHint(html) : null,
+    noResults: allBlocks.length === 0 && NO_RESULTS_RE.test(html),
+    pageHint: allBlocks.length === 0 ? extractPageHint(html) : null,
   };
 }
