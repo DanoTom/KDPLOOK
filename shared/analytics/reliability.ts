@@ -112,12 +112,26 @@ export function assessEstimate(input: ReliabilityInput): EstimateReliability {
   };
 
   if (!input.bsr) {
+    // Amazon assigns a sales rank on the first sale and keeps it afterwards, so
+    // its absence is itself a reading — usually the plainest one the app can
+    // give: this listing has not sold in this store. Worth saying, because the
+    // alternative is four empty boxes and no explanation.
+    const reasons = [
+      "Amazon no publica un Best Sellers Rank para esta ficha, así que no hay nada de lo que derivar ventas.",
+      "El ranking aparece con la primera venta y ya no se borra. Que no lo tenga suele significar exactamente eso: todavía no ha vendido en esta tienda.",
+    ];
+    if (input.ageMonths !== null && input.ageMonths >= LAUNCH_MONTHS) {
+      reasons.push(
+        `Lleva ${Math.round(input.ageMonths)} meses publicado, así que no es cuestión de esperar a que Amazon lo indexe: ` +
+        `es el dato que tienes que cambiar.`,
+      );
+    }
     return {
       level: "techo",
       label: "Sin ranking",
       tone: "warn",
-      reasons: ["Amazon no publica un Best Sellers Rank para esta ficha, así que no hay nada de lo que derivar ventas."],
-      advice: null,
+      reasons,
+      advice: "Comprueba abajo si sales en las búsquedas: sin visibilidad no hay ventas, y sin ventas no hay ranking. Es el orden en el que se arregla.",
       lowFactor: 0,
       highFactor: 1,
       sustained,

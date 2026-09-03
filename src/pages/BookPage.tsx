@@ -212,7 +212,9 @@ export function BookPage() {
               />
             </div>
 
-            {reliability && data.estimates.salesPerMonth !== null ? (
+            {reliability ? (
+              // Shown even with no estimate to judge: four empty KPIs and no
+              // explanation is the moment the reader most needs one.
               <EstimateTrust
                 reliability={reliability}
                 sales={data.estimates.salesPerMonth}
@@ -313,7 +315,7 @@ function EstimateTrust({
   reliability, sales, sustainedSales, royaltyPerUnit, currencySymbol,
 }: {
   reliability: EstimateReliability;
-  sales: number;
+  sales: number | null;
   sustainedSales: number | null;
   royaltyPerUnit: number | null;
   currencySymbol: string;
@@ -335,7 +337,7 @@ function EstimateTrust({
           {reliability.reasons.map((reason) => <li key={reason}>{reason}</li>)}
         </ul>
 
-        {sustained && sustainedSales !== null && Math.abs(sustainedSales - sales) >= 0.5 ? (
+        {sustained && sustainedSales !== null && sales !== null && Math.abs(sustainedSales - sales) >= 0.5 ? (
           <Alert tone="info">
             Sobre la mediana de su ranking ({fmtCompact(sustained.medianBsr)}) salen{" "}
             <strong>{fmtInt(sustainedSales)} ventas/mes</strong>
@@ -369,6 +371,7 @@ function RankCheck({ asin, title, marketplace, format }: {
   const { toast } = useApp();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [results, setResults] = useState<Awaited<ReturnType<typeof api.rankCheck>> | null>(null);
 
   // The title is where the publisher's own keyword bet is written down.
@@ -377,18 +380,55 @@ function RankCheck({ asin, title, marketplace, format }: {
     return clean.split(/\s+/).slice(0, 6).join(" ");
   }, [title]);
 
-  async function run() {
-    const keywords = input.split("\n").map((k) => k.trim()).filter(Boolean).slice(0, 6);
+  /**
+   * @param only when given, re-checks just these searches and merges the answers
+   *             into the table — Amazon refuses a share of requests and the same
+   *             one usually works moments later, which is what the niche scan
+   *             already does rather than making the operator start over.
+   */
+  async function run(only?: string[]) {
+    const keywords = only ?? input.split("\n").map((k) => k.trim()).filter(Boolean).slice(0, 6);
     if (!keywords.length) return;
     setBusy(true);
     try {
-      setResults(await api.rankCheck({
+      let response = await api.rankCheck({
         asin, keywords, marketplace, department, pages: 2, titleProbe: suggestion,
-      }));
+      });
+
+      // One automatic retry of whatever was refused, after a pause long enough
+      // to be worth taking. Beyond that it is a real block and the button below
+      // hands the decision back.
+      const refused = response.results.filter((r) => r.error).map((r) => r.keyword);
+      if (refused.length && refused.length <= keywords.length) {
+        setRetrying(true);
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        try {
+          const second = await api.rankCheck({
+            asin, keywords: refused, marketplace, department, pages: 2, titleProbe: suggestion,
+          });
+          const better = new Map(second.results.map((r) => [r.keyword, r]));
+          response = {
+            ...response,
+            results: response.results.map((row) => {
+              const retry = better.get(row.keyword);
+              return retry && !retry.error ? retry : row;
+            }),
+          };
+        } catch { /* the first answer still stands */ }
+        setRetrying(false);
+      }
+
+      setResults((current) => {
+        if (!only || !current) return response;
+        // A partial re-run must not drop the rows it did not ask about.
+        const fresh = new Map(response.results.map((r) => [r.keyword, r]));
+        return { ...current, results: current.results.map((row) => fresh.get(row.keyword) ?? row) };
+      });
     } catch (error) {
       toast(error instanceof Error ? error.message : "No se pudo comprobar", "bad");
     } finally {
       setBusy(false);
+      setRetrying(false);
     }
   }
 
@@ -430,9 +470,18 @@ function RankCheck({ asin, title, marketplace, format }: {
         </Field>
 
         <div className="row">
-          <Button variant="primary" loading={busy} icon={<Icon.Search size={15} />} onClick={run}>
+          <Button variant="primary" loading={busy} icon={<Icon.Search size={15} />} onClick={() => void run()}>
             Comprobar posición
           </Button>
+          {retrying ? <span className="small faint">Amazon rechazó alguna · reintentando…</span> : null}
+          {!busy && errored.length ? (
+            <Button
+              icon={<Icon.Refresh size={15} />}
+              onClick={() => void run(errored.map((r) => r.keyword))}
+            >
+              Reintentar {errored.length === 1 ? "la bloqueada" : `las ${errored.length} bloqueadas`}
+            </Button>
+          ) : null}
           <span className="small faint">
             Se revisan los ~96 primeros resultados orgánicos. Si no apareces, se repite la búsqueda
             junto a tu título para saber si es que Amazon no te indexa o es que estás muy abajo.
@@ -454,6 +503,7 @@ function RankCheck({ asin, title, marketplace, format }: {
                         {row.error ? <Badge tone="warn">{row.error}</Badge>
                           : row.found ? <Badge tone={row.position !== null && row.position <= 16 ? "good" : "warn"}>#{row.position}</Badge>
                           : row.scanned === 0 ? <Badge tone="warn">sin lista</Badge>
+                          : row.scanned < 24 ? <Badge tone="warn">muestra corta</Badge>
                           : row.indexed === false ? <Badge tone="bad">sin indexar</Badge>
                           : <Badge tone="bad">no aparece</Badge>}
                       </td>
@@ -472,6 +522,11 @@ function RankCheck({ asin, title, marketplace, format }: {
                             ? "Esa búsqueda no devolvió resultados, así que no hay ninguna lista en la que mirar. Prueba el departamento «Todo» o una variante de la frase."
                           : row.indexed === true
                             ? `Sí estás indexado —aparece al buscarlo junto a tu título—, pero por debajo del puesto ${row.scanned}. Las palabras clave están bien; lo que falta es historial de ventas para este término.`
+                          : row.scanned < 24
+                            // A full page is ~48 results. Reading much less than
+                            // one and concluding "you are not indexed" claims a
+                            // great deal from a very short look.
+                            ? `Amazon solo devolvió ${row.scanned} resultados para esta búsqueda, así que la comprobación es débil: no apareces en esos ${row.scanned}, pero es una muestra corta para concluir nada.`
                           : `No aparece en los ${row.scanned} primeros. O no estás indexado para este término, o estás muy por detrás.`}
                       </td>
                     </tr>

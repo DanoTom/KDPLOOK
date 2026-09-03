@@ -695,9 +695,22 @@ console.log("\nfiabilidad de la estimacion");
   check("y las cuenta bien", window?.samples, 3);
 
   // No rank at all: there is nothing to derive sales from, and it says so.
+  // This is the panel's most useful case, not its emptiest one — a listing with
+  // no rank has almost certainly never sold in that store.
   const noRank = assessEstimate({ bsr: null, ageMonths: 20, reviews: 5, salesPerMonth: null });
   check("sin BSR no hay estimacion", noRank.level, "techo");
   check("sin BSR no hay rango", estimateRange(null, noRank), null);
+  truthy("explica que el ranking llega con la primera venta",
+    noRank.reasons.some((r) => r.includes("primera venta")));
+  truthy("y dice que a los 20 meses no es cuestion de esperar",
+    noRank.reasons.some((r) => r.includes("20 meses")));
+  truthy("y manda a comprobar la visibilidad", (noRank.advice ?? "").includes("búsquedas"));
+
+  // On a book published days ago the same absence means something else, so the
+  // "you have had time" line must not appear.
+  const brandNew = assessEstimate({ bsr: null, ageMonths: 0.2, reviews: null, salesPerMonth: null });
+  check("en un recien publicado no se le echa en cara el tiempo",
+    brandNew.reasons.some((r) => r.includes("no es cuestión de esperar")), false);
 }
 
 console.log("\nnicho inflado por lanzamientos");
