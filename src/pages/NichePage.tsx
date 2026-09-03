@@ -8,9 +8,10 @@ import { Layout } from "../components/Layout";
 import { Alert, Badge, Button, Card, CardHead, Empty, Field, Kpi, Progress, SegmentedControl } from "../components/ui";
 import { downloadCsv, toCsv } from "../lib/csv";
 import { fmtCompact, fmtDate, fmtInt, fmtMoney, fmtNum, fmtPct, slug, toneForCompetition, toneForScore } from "../lib/format";
+import { buildEntryPlan } from "../../shared/analytics/entry";
 import { useNicheScan, type Department } from "../lib/scan";
 import { useRoute } from "../router";
-import { useApp } from "../state";
+import { useApp, useSettings } from "../state";
 
 export function NichePage() {
   const { settings, marketplaces, updateSettings, toast, currencySymbol } = useApp();
@@ -347,6 +348,8 @@ function NicheReport({
         </div>
       </div>
 
+      <EntryPlanCard items={items} currency={currency} />
+
       <Card>
         <CardHead title="Señales del nicho" note="Cada indicador con su lectura práctica." />
         <div className="card-pad grid grid-3">
@@ -413,5 +416,126 @@ function NicheReport({
         <BookTable items={items} currency={currency} marketplace={marketplace} onWatch={onWatch} watched={watched} />
       </Card>
     </div>
+  );
+}
+
+
+/**
+ * The report answers "what is happening here"; this answers "should I publish
+ * here, and what would my book have to be". Every figure is arithmetic over
+ * numbers already on screen, so nothing new is estimated — the one assumption,
+ * the review rate, is adjustable and labelled as an assumption.
+ */
+function EntryPlanCard({ items, currency }: { items: BookRecord[]; currency: string }) {
+  const settings = useSettings();
+  const [targetIncome, setTargetIncome] = useState(300);
+  const [reviewRate, setReviewRate] = useState(1);
+  const [aim, setAim] = useState(10);
+
+  const plan = useMemo(
+    () => buildEntryPlan({
+      items,
+      settings,
+      marketplace: settings.marketplace,
+      targetIncome,
+      reviewsPerHundredSales: reviewRate,
+      aimPosition: aim,
+    }),
+    [items, settings, targetIncome, reviewRate, aim],
+  );
+
+  const tone = plan.feasibility === "alcanzable" ? "good"
+    : plan.feasibility === "exigente" ? "warn"
+    : plan.feasibility === "duro" ? "bad" : "neutral";
+
+  return (
+    <Card>
+      <CardHead title="¿Y ahora qué?" note="Lo que tendría que hacer tu libro para entrar aquí.">
+        <SegmentedControl
+          value={String(aim)}
+          onChange={(value) => setAim(Number(value))}
+          options={[{ value: "5", label: "Top 5" }, { value: "10", label: "Top 10" }, { value: "20", label: "Top 20" }]}
+        />
+      </CardHead>
+
+      <div className="card-pad stack">
+        <Alert tone={tone === "neutral" ? "info" : tone}>
+          <strong>{plan.headline}</strong>
+        </Alert>
+
+        <div className="grid grid-4">
+          <Kpi
+            label="Ventas para entrar" tone={tone}
+            value={plan.targetSalesPerMonth !== null ? fmtInt(plan.targetSalesPerMonth) : "—"}
+            sub={plan.targetSalesPerDay !== null ? `al mes · ${fmtNum(plan.targetSalesPerDay, 2)} al día` : "sin datos de BSR"}
+            title={plan.targetTitle ? `Puesto ${plan.targetPosition}: ${plan.targetTitle}` : undefined}
+          />
+          <Kpi
+            label="Reseñas a superar" tone={plan.reviewsToBeat !== null && plan.reviewsToBeat < 50 ? "good" : "warn"}
+            value={fmtInt(plan.reviewsToBeat)}
+            sub={plan.targetPosition ? `las del puesto ${plan.targetPosition}` : "mediana del top"}
+          />
+          <Kpi
+            label="Tu regalía por unidad" tone={plan.royaltyPerUnit !== null && plan.royaltyPerUnit >= 3 ? "good" : "warn"}
+            value={fmtMoney(plan.royaltyPerUnit, currency)}
+            sub={plan.suggestedPrice !== null ? `a ${fmtMoney(plan.suggestedPrice, currency)} con ${fmtInt(plan.suggestedPages)} págs.` : "sin precio de referencia"}
+          />
+          <Kpi
+            label={`Para ${fmtMoney(targetIncome, currency)}/mes`} tone="accent"
+            value={plan.unitsForTarget !== null ? fmtInt(plan.unitsForTarget) : "—"}
+            sub="ejemplares al mes"
+          />
+        </div>
+
+        <div className="grid grid-2">
+          <Field label={`Objetivo de ingresos: ${fmtMoney(targetIncome, currency)}/mes`}>
+            <input type="range" min={50} max={2000} step={50} value={targetIncome} onChange={(e) => setTargetIncome(Number(e.target.value))} />
+          </Field>
+          <Field
+            label={`Reseñas por cada 100 ventas: ${reviewRate}`}
+            help="Suposición del sector, no un dato medido. Si conoces tu tasa real, ponla aquí."
+          >
+            <input type="range" min={0.5} max={5} step={0.5} value={reviewRate} onChange={(e) => setReviewRate(Number(e.target.value))} />
+          </Field>
+        </div>
+
+        {plan.monthsToReviews !== null ? (
+          <Alert tone={plan.monthsToReviews > 24 ? "warn" : "info"}>
+            {plan.monthsToReviews > 36 ? (
+              <>
+                <strong>Las reseñas son la barrera aquí, no las ventas.</strong> Vendiendo al ritmo de
+                entrada harían falta más de {Math.round(plan.monthsToReviews / 12)} años para igualar
+                las {fmtInt(plan.reviewsToBeat)} reseñas del puesto {plan.targetPosition}. Entrar es
+                posible; desbancarlos por prueba social, no. Compite por ángulo y portada, o busca una
+                consulta más específica donde el líder tenga pocas reseñas.
+              </>
+            ) : (
+              <>
+                Al ritmo de entrada tardarías unos <strong>{fmtNum(plan.monthsToReviews, 1)} meses</strong> en
+                acumular las {fmtInt(plan.reviewsToBeat)} reseñas del puesto {plan.targetPosition}.
+              </>
+            )}
+          </Alert>
+        ) : null}
+
+        {plan.unitsForTarget !== null && plan.targetSalesPerMonth !== null ? (
+          <div className="small muted" style={{ lineHeight: 1.7 }}>
+            <strong>En resumen.</strong> Un libro de unas {fmtInt(plan.suggestedPages)} páginas a{" "}
+            {fmtMoney(plan.suggestedPrice, currency)} te dejaría {fmtMoney(plan.royaltyPerUnit, currency)} por
+            ejemplar. Para ganar {fmtMoney(targetIncome, currency)} al mes necesitas{" "}
+            <strong>{fmtInt(plan.unitsForTarget)} ventas mensuales</strong>
+            {plan.unitsForTarget > plan.targetSalesPerMonth
+              ? `, que es ${fmtNum(plan.unitsForTarget / plan.targetSalesPerMonth, 1)} veces lo que vende el puesto ${plan.targetPosition}: ese objetivo pide varios títulos, no uno.`
+              : `, menos de lo que vende el puesto ${plan.targetPosition}: un solo título bien colocado puede llegar.`}
+          </div>
+        ) : null}
+
+        {plan.notes.length ? (
+          <ul className="small faint" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+            {plan.notes.map((note) => <li key={note}>{note}</li>)}
+          </ul>
+        ) : null}
+      </div>
+    </Card>
   );
 }

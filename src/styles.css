@@ -240,7 +240,7 @@ a:hover { text-decoration: underline; }
 .grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .grid-4 { grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.row-tight { display: flex; align-items: center; gap: 6px; }
+.row-tight { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .col { display: flex; flex-direction: column; gap: 10px; }
 .spacer { margin-left: auto; }
 .stack-sm > * + * { margin-top: 8px; }

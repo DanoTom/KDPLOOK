@@ -17,6 +17,8 @@ import { looksBlocked } from "../worker/amazon/fetcher";
 import { parseDate, parseInteger, parsePrice } from "../worker/amazon/html";
 import { calibrationFor, salesPerMonth, suggestCalibration } from "../shared/analytics/bsr";
 import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost } from "../shared/analytics/royalty";
+import { buildEntryPlan } from "../shared/analytics/entry";
+import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, "fixtures", name), "utf8");
@@ -292,6 +294,54 @@ console.log("\ncalibracion de la curva");
   truthy("espana escala con su factor medido", spain > 0);
   truthy("estados unidos no se ve afectado",
     Math.abs(us - (salesPerMonth(200_000, "paperback", "com", 1.5) ?? 0)) < 0.001);
+}
+
+console.log("\nplan de entrada");
+{
+  const settings = { printing: DEFAULT_PRINTING_COSTS } as unknown as AppSettings;
+  const book = (position: number, over: Partial<BookRecord> = {}): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `Libro ${position}`, author: "A",
+    url: "", image: "", format: "paperback", formatLabel: "Tapa blanda",
+    price: 12.99, rating: 4.5, reviews: 40, sponsored: false, kindleUnlimited: false, position,
+    bsr: 50_000, categoryRanks: [], pages: 120, publisher: null, publishedAt: null, language: null,
+    isbn: null, dimensions: null, selfPublished: null, enriched: true,
+    salesPerMonth: 20, revenuePerMonth: null, royaltyPerUnit: null, ageMonths: null, weakness: null,
+    ...over,
+  });
+
+  const items = Array.from({ length: 12 }, (_, i) => book(i + 1));
+  items[9] = book(10, { salesPerMonth: 25, reviews: 60 });   // the listing to displace
+  items[11] = book(12, { salesPerMonth: 5 });                // outside the band
+
+  const plan = buildEntryPlan({
+    items, settings, marketplace: "com", targetIncome: 300, reviewsPerHundredSales: 1,
+  });
+
+  check("apunta al ultimo puesto de la banda", plan.targetPosition, 10);
+  check("ventas mensuales para entrar", plan.targetSalesPerMonth, 25);
+  check("equivalente diario", plan.targetSalesPerDay, 0.82);
+  check("resenas del libro a desbancar", plan.reviewsToBeat, 60);
+  check("precio de referencia (mediana del top 10)", plan.suggestedPrice, 12.99);
+  check("paginas de referencia", plan.suggestedPages, 120);
+  // 12.99 * 0.6 - (1.00 + 0.012 * 120) = 7.794 - 2.44
+  check("regalia por unidad", plan.royaltyPerUnit, 5.35);
+  check("ejemplares para 300 al mes", plan.unitsForTarget, 57);
+  // 60 reviews at 1 per 100 sales, selling 25 a month = 0.25 reviews/month.
+  check("meses hasta igualar resenas", plan.monthsToReviews, 240);
+  check("viabilidad", plan.feasibility, "alcanzable");
+
+  const hard = buildEntryPlan({
+    items: items.map((b) => ({ ...b, salesPerMonth: 400 })),
+    settings, marketplace: "com", targetIncome: 300, reviewsPerHundredSales: 1,
+  });
+  check("un top que vende mucho es duro", hard.feasibility, "duro");
+
+  const blind = buildEntryPlan({
+    items: items.map((b) => ({ ...b, salesPerMonth: null, bsr: null })),
+    settings, marketplace: "com", targetIncome: 300, reviewsPerHundredSales: 1,
+  });
+  check("sin BSR no se inventa un plan", blind.feasibility, "sin datos");
+  check("sin BSR no hay objetivo de ventas", blind.targetSalesPerMonth, null);
 }
 
 console.log("\nregalias");
