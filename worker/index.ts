@@ -594,7 +594,7 @@ app.post("/api/cache/purge", async (c) => {
  * when a scan comes back empty.
  */
 app.post("/api/debug/probe", async (c) => {
-  const body = await readJson<{ url?: string; kind?: "search" | "product" }>(c);
+  const body = await readJson<{ url?: string; kind?: "search" | "product" | "category" }>(c);
   const target = body.url ?? "";
   let parsedUrl: URL;
   try {
@@ -609,11 +609,20 @@ app.post("/api/debug/probe", async (c) => {
 
   const settings = await withSettings(c);
   const outcome = await fetchPage(c.env, settings, target, { attempts: 1 });
-  const kind = body.kind ?? (parsedUrl.pathname.includes("/dp/") ? "product" : "search");
+  const kind = body.kind ?? detectProbeKind(parsedUrl.pathname);
 
   let parsedSummary: unknown = null;
   if (outcome.ok) {
-    if (kind === "product") {
+    if (kind === "category") {
+      const listing = parseBestsellerPage(outcome.body);
+      parsedSummary = {
+        name: listing.name,
+        breadcrumb: listing.breadcrumb,
+        asinCount: listing.asins.length,
+        firstAsins: listing.asins.slice(0, 10),
+        children: listing.children.slice(0, 12),
+      };
+    } else if (kind === "product") {
       const asin = /\/dp\/([A-Z0-9]{10})/i.exec(parsedUrl.pathname)?.[1] ?? "0000000000";
       parsedSummary = parseProductPage(outcome.body, asin.toUpperCase());
     } else {
@@ -637,10 +646,40 @@ app.post("/api/debug/probe", async (c) => {
     attempts: outcome.attempts,
     bodyLength: outcome.body.length,
     title: /<title>([^<]{0,200})<\/title>/i.exec(outcome.body)?.[1] ?? null,
-    snippet: outcome.body.slice(0, 1200),
+    snippet: outcome.body.slice(0, 900),
+    ...relevantExcerpt(outcome.body, kind),
     parsed: parsedSummary,
   });
 });
+
+function detectProbeKind(pathname: string): "search" | "product" | "category" {
+  if (/\/(?:gp\/bestsellers|zgbs|bestsellers)\b/i.test(pathname)) return "category";
+  if (/\/(?:dp|gp\/product)\//i.test(pathname)) return "product";
+  return "search";
+}
+
+/**
+ * Amazon pages open with a kilobyte of head boilerplate that says nothing about
+ * why a parser missed. Return the markup around the structure this page type is
+ * supposed to contain, plus which anchor was found — the absence of every
+ * anchor is itself the diagnosis.
+ */
+function relevantExcerpt(html: string, kind: "search" | "product" | "category"): { excerpt: string; anchor: string | null } {
+  const anchors =
+    kind === "category"
+      ? ['id="gridItemRoot"', 'p13n-desktop-grid', 'id="zg-ordered-list"', 'zg-grid-general-faceout', 'id="zg-left-col"', "/dp/"]
+      : kind === "product"
+        ? ["data-rpi-attribute-name", 'id="detailBullets_feature_div"', 'id="productDetails', 'id="productTitle"']
+        : ['data-component-type="s-search-result"', 's-main-slot', 'data-asin="'];
+
+  for (const anchor of anchors) {
+    const idx = html.indexOf(anchor);
+    if (idx >= 0) {
+      return { excerpt: html.slice(Math.max(0, idx - 400), idx + 2400), anchor };
+    }
+  }
+  return { excerpt: "", anchor: null };
+}
 
 app.get("/api/debug/log", async (c) => c.json(await recentFetches(c.env, 100)));
 

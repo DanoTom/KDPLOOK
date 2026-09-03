@@ -104,6 +104,8 @@ export interface ProbeResponse {
   bodyLength: number;
   title: string | null;
   snippet: string;
+  excerpt: string;
+  anchor: string | null;
   parsed: unknown;
 }
 
@@ -176,6 +178,6 @@ export const api = {
   migrate: () => post<{ ok: boolean; statements: number; dbReady: boolean }>("/api/setup/migrate"),
 
   purgeCache: (all = false) => post<{ ok: boolean; removed: number }>(`/api/cache/purge${all ? "?all=1" : ""}`),
-  probe: (url: string, kind?: "search" | "product") => post<ProbeResponse>("/api/debug/probe", { url, kind }),
+  probe: (url: string, kind?: "search" | "product" | "category") => post<ProbeResponse>("/api/debug/probe", { url, kind }),
   fetchLog: () => request<HealthInfo["recentFetches"]>("/api/debug/log"),
 };

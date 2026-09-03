@@ -140,6 +140,9 @@ export function DiagnosticsPage() {
               <Button size="sm" variant="ghost" onClick={() => setProbeUrl(`${marketHost}/dp/B08L5T4M2Z`)}>
                 Ejemplo: ficha
               </Button>
+              <Button size="sm" variant="ghost" onClick={() => setProbeUrl(`${marketHost}/gp/bestsellers/books/`)}>
+                Ejemplo: más vendidos
+              </Button>
             </div>
 
             {probe ? (
@@ -156,8 +159,18 @@ export function DiagnosticsPage() {
                 <Field label="Datos reconocidos por el parser">
                   <pre className="code">{JSON.stringify(probe.parsed, null, 2) || "null"}</pre>
                 </Field>
-                <Field label="Primeros bytes de la respuesta" >
-                  <pre className="code" style={{ maxHeight: 200 }}>{probe.snippet}</pre>
+                <Field
+                  label={probe.anchor
+                    ? `Marcado alrededor de «${probe.anchor}»`
+                    : "No se encontró ninguna estructura conocida en la página"}
+                  help={probe.anchor
+                    ? "Es el trozo de HTML del que el parser debería extraer los datos."
+                    : "Ni un solo contenedor esperado aparece: o Amazon cambió el marcado por completo, o esta no es la página que creemos."}
+                >
+                  <pre className="code" style={{ maxHeight: 260 }}>{probe.excerpt || "(sin coincidencias)"}</pre>
+                </Field>
+                <Field label="Primeros bytes de la respuesta">
+                  <pre className="code" style={{ maxHeight: 160 }}>{probe.snippet}</pre>
                 </Field>
               </div>
             ) : null}
