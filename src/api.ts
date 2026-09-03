@@ -94,6 +94,8 @@ export interface KeywordScoreDto {
   avgPrice?: number | null;
   lowReviewShare?: number | null;
   sampled?: number;
+  /** Of those sampled, how many had a review count that could be read. */
+  withReviews?: number;
   scannedAt?: number;
   error?: string;
 }

@@ -308,15 +308,22 @@ app.post("/api/keywords/score", async (c) => {
 
     const parsed = parseSearchPage(outcome.body, marketplace, 0, 24);
     const organic = parsed.items.filter((i) => !i.sponsored).slice(0, 16);
-    const reviews = organic.map((i) => i.reviews).filter((r): r is number => r !== null);
+    // Only the listings whose review count was actually read. Counting an
+    // unknown as zero turns a page nothing could be parsed from into "100% de
+    // rivales flojos" — the strongest go-ahead the app can give, produced by
+    // having read nothing at all.
+    const withReviews = organic.filter((i) => i.reviews !== null);
+    const reviews = withReviews.map((i) => i.reviews as number);
     const payload = {
       totalResults: parsed.totalResults,
       avgReviews: reviews.length ? Math.round(reviews.reduce((a, b) => a + b, 0) / reviews.length) : null,
       medianReviews: reviews.length ? medianOf(reviews) : null,
       sampled: organic.length,
+      /** How many of those had a review count to read. */
+      withReviews: withReviews.length,
       avgPrice: avgOf(organic.map((i) => i.price)),
-      lowReviewShare: organic.length
-        ? Math.round((organic.filter((i) => (i.reviews ?? 0) < settings.weakReviewThreshold).length / organic.length) * 100) / 100
+      lowReviewShare: withReviews.length
+        ? Math.round((reviews.filter((r) => r < settings.weakReviewThreshold).length / withReviews.length) * 100) / 100
         : null,
       scannedAt: Date.now(),
     };

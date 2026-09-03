@@ -471,9 +471,13 @@ export function KeywordsPage() {
                         <td className="num">{score ? fmtInt(score.medianReviews ?? null) : <span className="faint">—</span>}</td>
                         <td className="num">
                           {score?.lowReviewShare !== undefined && score?.lowReviewShare !== null ? (
-                            <Badge tone={score.lowReviewShare >= 0.5 ? "good" : score.lowReviewShare >= 0.3 ? "warn" : "bad"}>
-                              {fmtPct(score.lowReviewShare)}
-                            </Badge>
+                            // How many listings the share was measured over: a
+                            // percentage of three is not a percentage of sixteen.
+                            <span title={`Sobre ${score.withReviews ?? "?"} de ${score.sampled ?? "?"} fichas con reseñas legibles`}>
+                              <Badge tone={score.lowReviewShare >= 0.5 ? "good" : score.lowReviewShare >= 0.3 ? "warn" : "bad"}>
+                                {fmtPct(score.lowReviewShare)}
+                              </Badge>
+                            </span>
                           ) : <span className="faint">—</span>}
                         </td>
                         <td>
