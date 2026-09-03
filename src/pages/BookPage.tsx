@@ -374,7 +374,9 @@ function RankCheck({ asin, title, marketplace }: { asin: string; title: string; 
     if (!keywords.length) return;
     setBusy(true);
     try {
-      setResults(await api.rankCheck({ asin, keywords, marketplace, department: "print", pages: 2 }));
+      setResults(await api.rankCheck({
+        asin, keywords, marketplace, department: "print", pages: 2, titleProbe: suggestion,
+      }));
     } catch (error) {
       toast(error instanceof Error ? error.message : "No se pudo comprobar", "bad");
     } finally {
@@ -389,6 +391,10 @@ function RankCheck({ asin, title, marketplace }: { asin: string; title: string; 
   // temporary block into "your book is invisible", which is the opposite of
   // what this panel exists to establish.
   const errored = rows.filter((r) => r.error);
+  // Among the searches it does not show up in, the ones Amazon does not even
+  // associate with the book. That is a metadata fix; the rest is a sales fix.
+  const unindexed = missing.filter((r) => r.indexed === false);
+  const buried = missing.filter((r) => r.indexed === true);
 
   return (
     <Card>
@@ -419,7 +425,10 @@ function RankCheck({ asin, title, marketplace }: { asin: string; title: string; 
           <Button variant="primary" loading={busy} icon={<Icon.Search size={15} />} onClick={run}>
             Comprobar posición
           </Button>
-          <span className="small faint">Se revisan los ~96 primeros resultados orgánicos de cada búsqueda.</span>
+          <span className="small faint">
+            Se revisan los ~96 primeros resultados orgánicos. Si no apareces, se repite la búsqueda
+            junto a tu título para saber si es que Amazon no te indexa o es que estás muy abajo.
+          </span>
         </div>
 
         {results ? (
@@ -436,6 +445,7 @@ function RankCheck({ asin, title, marketplace }: { asin: string; title: string; 
                       <td className="num">
                         {row.error ? <Badge tone="warn">{row.error}</Badge>
                           : row.found ? <Badge tone={row.position !== null && row.position <= 16 ? "good" : "warn"}>#{row.position}</Badge>
+                          : row.indexed === false ? <Badge tone="bad">sin indexar</Badge>
                           : <Badge tone="bad">no aparece</Badge>}
                       </td>
                       <td className="num faint">{fmtCompact(row.totalResults)}</td>
@@ -444,6 +454,10 @@ function RankCheck({ asin, title, marketplace }: { asin: string; title: string; 
                           : row.found && row.position !== null && row.position <= 16
                             ? "Sale en la primera pantalla: aquí sí compites."
                           : row.found ? "Está indexado pero demasiado abajo para recibir clics."
+                          : row.indexed === false
+                            ? "Amazon no asocia tu libro con este término: buscándolo junto a tu título tampoco aparece. Es un problema de metadatos, no de ventas — revisa las 7 palabras clave, el título y el subtítulo en KDP."
+                          : row.indexed === true
+                            ? `Sí estás indexado —aparece al buscarlo junto a tu título—, pero por debajo del puesto ${row.scanned}. Las palabras clave están bien; lo que falta es historial de ventas para este término.`
                           : `No aparece en los ${row.scanned} primeros. O no estás indexado para este término, o estás muy por detrás.`}
                       </td>
                     </tr>
@@ -457,6 +471,20 @@ function RankCheck({ asin, title, marketplace }: { asin: string; title: string; 
                 <>
                   <strong>No se pudo comprobar ninguna búsqueda.</strong> Amazon rechazó las
                   peticiones, así que esto no dice nada sobre tu libro. Reinténtalo en unos minutos.
+                </>
+              ) : found.length === 0 && unindexed.length === missing.length && missing.length ? (
+                <>
+                  <strong>No estás indexado para ninguno de estos términos.</strong> No es que vendas
+                  poco: Amazon directamente no asocia tu libro con esas palabras. Se arregla en KDP —
+                  las 7 casillas de palabras clave, el título y el subtítulo— y tarda entre uno y tres
+                  días en surtir efecto.
+                </>
+              ) : found.length === 0 && buried.length ? (
+                <>
+                  <strong>Estás indexado, pero por debajo de lo que nadie llega a ver.</strong> Las
+                  palabras clave están bien puestas; lo que no hay es historial de ventas para esos
+                  términos, y Amazon ordena por eso. Aquí no hay metadato que tocar: o entras por
+                  términos con menos competencia, o compras las primeras ventas con anuncios.
                 </>
               ) : found.length === 0 ? (
                 <>

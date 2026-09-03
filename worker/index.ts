@@ -339,7 +339,7 @@ function avgOf(values: Array<number | null>): number | null {
 app.post("/api/scan/rank", async (c) => {
   const body = await readJson<{
     asin?: string; keywords?: string[]; marketplace?: string;
-    department?: "print" | "kindle" | "all"; pages?: number;
+    department?: "print" | "kindle" | "all"; pages?: number; titleProbe?: string;
   }>(c);
 
   const asin = (body.asin ?? "").toUpperCase();
@@ -352,6 +352,38 @@ app.post("/api/scan/rank", async (c) => {
   const marketplace = getMarketplace(body.marketplace ?? settings.marketplace);
   const department = body.department ?? "print";
   const depth = Math.max(1, Math.min(3, body.pages ?? 2));
+  // A few words of the title, used to narrow a search that came up empty.
+  const titleProbe = (body.titleProbe ?? "").trim().split(/\s+/).slice(0, 5).join(" ");
+
+  /**
+   * Whether Amazon associates the book with a term at all.
+   *
+   * "It does not appear" has two causes that need opposite fixes: the book is
+   * not indexed for the term (a KDP metadata problem — the seven keywords, the
+   * title, the subtitle), or it is indexed and simply ranked below anything a
+   * shopper will scroll to (a sales problem). Searching the term together with
+   * the title separates them: if the book surfaces on that narrowed query it is
+   * indexed, because Amazon can only return what it has associated.
+   */
+  async function checkIndexed(keyword: string): Promise<boolean | null> {
+    if (!titleProbe) return null;
+    const query = `${keyword} ${titleProbe}`;
+    const cacheKey = `rankprobe:${marketplace.id}:${department}:${query.toLowerCase()}`;
+    let parsed = await cacheGet<{ asins: string[]; count: number }>(c.env, cacheKey);
+    if (!parsed) {
+      const outcome = await fetchPage(c.env, settings, searchUrl(marketplace, query, 1, department), {
+        language: marketplace.language, attempts: 1,
+      });
+      if (!outcome.ok) return null;
+      const search = parseSearchPage(outcome.body, marketplace, 0, 60);
+      const organic = search.items.filter((item) => !item.sponsored);
+      parsed = { asins: organic.map((item) => item.asin), count: organic.length };
+      await cacheSet(c.env, cacheKey, parsed, settings.cacheTtlHours);
+    }
+    if (parsed.asins.includes(asin)) return true;
+    // An empty narrowed search proves nothing either way.
+    return parsed.count > 0 ? false : null;
+  }
 
   const results = await mapWithConcurrency(keywords, Math.min(3, settings.concurrency), settings.requestDelayMs, async (keyword) => {
     let scanned = 0;
@@ -383,7 +415,10 @@ app.post("/api/scan/rank", async (c) => {
       if (parsed.count === 0) break;
     }
 
-    return { keyword, found: false, position: null, page: null, scanned, totalResults };
+    return {
+      keyword, found: false, position: null, page: null, scanned, totalResults,
+      indexed: await checkIndexed(keyword),
+    };
   });
 
   await logFetch(c.env, {

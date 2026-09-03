@@ -144,12 +144,14 @@ export const api = {
 
   rankCheck: (body: {
     asin: string; keywords: string[]; marketplace: MarketplaceId;
-    department: "print" | "kindle" | "all"; pages?: number;
+    department: "print" | "kindle" | "all"; pages?: number; titleProbe?: string;
   }) => post<{
     asin: string; marketplace: MarketplaceId; depth: number;
     results: Array<{
       keyword: string; found: boolean; position: number | null; page: number | null;
       scanned: number; totalResults: number | null; error?: string;
+      /** true = Amazon asocia el libro al término; false = no; null = sin concluir. */
+      indexed?: boolean | null;
     }>;
   }>("/api/scan/rank", body),
 
