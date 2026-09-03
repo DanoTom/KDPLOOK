@@ -202,7 +202,10 @@ a:hover { text-decoration: underline; }
 }
 .page-narrow { max-width: 940px; }
 
-.menu-toggle { display: none; }
+/* The drawer handle exists only while the sidebar is a drawer. It has to beat
+   `.btn`, which is declared further down and would otherwise win on source
+   order and leave a dead button sitting next to the page title on desktop. */
+.btn.menu-toggle { display: none; }
 
 @media (max-width: 900px) {
   .sidebar {
@@ -210,7 +213,7 @@ a:hover { text-decoration: underline; }
     transition: transform 0.22s ease; box-shadow: var(--shadow-lg);
   }
   .sidebar.open { transform: translateX(0); }
-  .menu-toggle { display: inline-flex; }
+  .btn.menu-toggle { display: inline-flex; }
   .page { padding: 16px; }
   .scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 25; }
 }

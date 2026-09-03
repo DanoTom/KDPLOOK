@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { MarketplaceId, RankPoint } from "../../shared/types";
+import type { BookFormat, MarketplaceId, RankPoint } from "../../shared/types";
 import { calibrationFor, salesPerMonth as salesFromBsr } from "../../shared/analytics/bsr";
 import { assessEstimate, estimateRange, type EstimateReliability } from "../../shared/analytics/reliability";
 import { monthsSince } from "../../shared/analytics/score";
@@ -243,7 +243,10 @@ export function BookPage() {
               </Card>
             ) : null}
 
-            <RankCheck asin={detail.asin} title={detail.title ?? ""} marketplace={marketplace} />
+            <RankCheck
+              asin={detail.asin} title={detail.title ?? ""} marketplace={marketplace}
+              format={detail.format ?? "paperback"}
+            />
 
             <Card>
               <CardHead
@@ -357,7 +360,12 @@ function EstimateTrust({
  * position it holds is reported, ads excluded, since a paid slot is bought
  * rather than earned.
  */
-function RankCheck({ asin, title, marketplace }: { asin: string; title: string; marketplace: MarketplaceId }) {
+function RankCheck({ asin, title, marketplace, format }: {
+  asin: string; title: string; marketplace: MarketplaceId; format: BookFormat;
+}) {
+  // Searching the printed-books department for a Kindle edition finds nothing,
+  // and "nothing" would be reported as an indexing problem the book does not have.
+  const department = format === "kindle" ? "kindle" : "print";
   const { toast } = useApp();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -375,7 +383,7 @@ function RankCheck({ asin, title, marketplace }: { asin: string; title: string; 
     setBusy(true);
     try {
       setResults(await api.rankCheck({
-        asin, keywords, marketplace, department: "print", pages: 2, titleProbe: suggestion,
+        asin, keywords, marketplace, department, pages: 2, titleProbe: suggestion,
       }));
     } catch (error) {
       toast(error instanceof Error ? error.message : "No se pudo comprobar", "bad");
