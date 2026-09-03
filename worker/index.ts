@@ -4,7 +4,7 @@ import type {
   AppSettings, BookRecord, HealthInfo, KeywordRecord, MarketplaceId, NicheSummary, RoyaltyInput,
 } from "../shared/types";
 import { computeRoyalty, estimateRoyaltyPerUnit } from "../shared/analytics/royalty";
-import { salesPerMonth } from "../shared/analytics/bsr";
+import { calibrationFor, salesPerMonth } from "../shared/analytics/bsr";
 import { APP_VERSION, type Env } from "./env";
 import { authEnabled, checkPassword, clearSessionCookie, createSessionCookie, isAuthenticated } from "./auth";
 import {
@@ -426,7 +426,7 @@ app.get("/api/book/:asin", async (c) => {
 
   const history = await getHistory(c.env, asin, marketplace.id);
   const format = detail.format ?? "paperback";
-  const sales = salesPerMonth(detail.bsr, format, marketplace.id, settings.salesCurveCalibration);
+  const sales = salesPerMonth(detail.bsr, format, marketplace.id, calibrationFor(settings, marketplace.id));
   const royalty = estimateRoyaltyPerUnit(detail.price, detail.pages, format, settings.printing);
 
   return c.json({
@@ -564,7 +564,7 @@ async function snapshotWatchlist(
 
     const detail = parseProductPage(outcome.body, item.asin);
     const format = detail.format ?? "paperback";
-    const sales = salesPerMonth(detail.bsr, format, marketplace.id, settings.salesCurveCalibration);
+    const sales = salesPerMonth(detail.bsr, format, marketplace.id, calibrationFor(settings, marketplace.id));
     const royalty = estimateRoyaltyPerUnit(detail.price, detail.pages, format, settings.printing);
 
     await recordRankPoint(env, item.asin, marketplace.id, {

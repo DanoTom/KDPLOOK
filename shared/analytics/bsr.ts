@@ -1,4 +1,4 @@
-import type { BookFormat, MarketplaceId } from "../types";
+import type { AppSettings, BookFormat, MarketplaceId } from "../types";
 
 /**
  * BSR → sales estimation.
@@ -104,3 +104,32 @@ export function bsrForSalesPerMonth(
 }
 
 export const MARKET_FACTORS = MARKET_FACTOR;
+
+/**
+ * The calibration multiplier in force for a storefront.
+ *
+ * Falls back to the global one so an uncalibrated store still behaves as
+ * before, and a store calibrated from real sales stops borrowing another
+ * market's correction.
+ */
+export function calibrationFor(settings: AppSettings, marketplace: MarketplaceId): number {
+  const perMarket = settings.calibrationByMarket?.[marketplace];
+  if (typeof perMarket === "number" && Number.isFinite(perMarket) && perMarket > 0) return perMarket;
+  return settings.salesCurveCalibration || 1;
+}
+
+/**
+ * Multiplier that would make the curve match a known figure: divide the sales
+ * the owner actually makes by what the uncalibrated curve predicts.
+ */
+export function suggestCalibration(samples: Array<{ actualSalesPerMonth: number; rawEstimate: number }>): number | null {
+  const ratios = samples
+    .filter((s) => s.rawEstimate > 0 && s.actualSalesPerMonth > 0)
+    .map((s) => s.actualSalesPerMonth / s.rawEstimate)
+    .sort((a, b) => a - b);
+  if (!ratios.length) return null;
+  // Median, so one unusual title cannot drag the whole store's calibration.
+  const mid = Math.floor(ratios.length / 2);
+  const value = ratios.length % 2 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2;
+  return Math.round(Math.max(0.05, Math.min(20, value)) * 100) / 100;
+}

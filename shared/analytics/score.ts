@@ -1,7 +1,7 @@
 import type {
   AppSettings, BookRecord, MarketplaceId, NicheSummary, Signal, Verdict,
 } from "../types";
-import { salesPerMonth } from "./bsr";
+import { calibrationFor, salesPerMonth } from "./bsr";
 import { estimateRoyaltyPerUnit } from "./royalty";
 import { currencySymbolFor } from "../currency";
 
@@ -20,7 +20,7 @@ export function deriveMetrics(
   marketplace: MarketplaceId,
   settings: AppSettings,
 ): BookRecord {
-  const sales = salesPerMonth(book.bsr, book.format, marketplace, settings.salesCurveCalibration);
+  const sales = salesPerMonth(book.bsr, book.format, marketplace, calibrationFor(settings, marketplace));
   const royalty = estimateRoyaltyPerUnit(book.price, book.pages, book.format, settings.printing);
   const revenue = sales !== null && royalty !== null ? Math.round(sales * royalty * 100) / 100 : null;
   const ageMonths = monthsSince(book.publishedAt);

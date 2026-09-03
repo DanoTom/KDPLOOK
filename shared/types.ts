@@ -268,6 +268,21 @@ export interface PrintingCosts {
   hardcoverPerPage: number;
 }
 
+/** A book whose real sales are known, used to calibrate the BSR curve. */
+export interface CalibrationSample {
+  id: string;
+  asin: string;
+  marketplace: MarketplaceId;
+  title: string;
+  format: BookFormat;
+  bsr: number;
+  /** Units per month the owner actually sells. */
+  actualSalesPerMonth: number;
+  /** What the uncalibrated curve predicted for that BSR. */
+  rawEstimate: number;
+  capturedAt: number;
+}
+
 export interface AppSettings {
   marketplace: MarketplaceId;
   /** How many search result pages to pull per niche scan (1-7). */
@@ -287,6 +302,14 @@ export interface AppSettings {
   printing: PrintingCosts;
   /** Multiplier applied to the BSR→sales curve, for personal calibration. */
   salesCurveCalibration: number;
+  /**
+   * Per-storefront calibration. Market size differs enormously between
+   * storefronts, so one global multiplier cannot be right everywhere; a value
+   * here wins over `salesCurveCalibration` for that marketplace.
+   */
+  calibrationByMarket: Partial<Record<MarketplaceId, number>>;
+  /** Reference books behind the calibration, so it can be reviewed and redone. */
+  calibrationSamples: CalibrationSample[];
   theme: "dark" | "light";
   locale: "es" | "en";
 }

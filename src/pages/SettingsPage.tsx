@@ -1,8 +1,11 @@
 import { useState } from "react";
-import type { AppSettings, PrintingCosts } from "../../shared/types";
+import type { AppSettings, CalibrationSample, MarketplaceId, PrintingCosts } from "../../shared/types";
+import { calibrationFor, salesPerMonth, suggestCalibration } from "../../shared/analytics/bsr";
 import { api } from "../api";
 import { Layout } from "../components/Layout";
-import { Alert, Button, Card, CardHead, Field, SegmentedControl, Switch } from "../components/ui";
+import { Alert, Badge, Button, Card, CardHead, Field, SegmentedControl, Switch } from "../components/ui";
+import { Icon } from "../components/icons";
+import { fmtCompact, fmtNum } from "../lib/format";
 import { useApp } from "../state";
 
 export function SettingsPage() {
@@ -56,13 +59,15 @@ export function SettingsPage() {
               <input type="range" min={10} max={500} step={10} value={settings.weakReviewThreshold} onChange={(e) => set("weakReviewThreshold", Number(e.target.value))} />
             </Field>
             <Field
-              label={`Calibración de la curva de ventas: ×${settings.salesCurveCalibration.toFixed(2)}`}
-              help="Si conoces las ventas reales de un libro con cierto BSR, ajusta aquí hasta que la estimación coincida. Afecta a toda la app."
+              label={`Ajuste manual global: ×${settings.salesCurveCalibration.toFixed(2)}`}
+              help="Se aplica a las tiendas que no tengan calibración propia. Mejor usa el asistente de abajo."
             >
               <input type="range" min={0.2} max={3} step={0.05} value={settings.salesCurveCalibration} onChange={(e) => set("salesCurveCalibration", Number(e.target.value))} />
             </Field>
           </div>
         </Card>
+
+        <CalibrationCard />
 
         <Card>
           <CardHead title="Origen de los datos" note="Cómo llega KDPLOOK hasta Amazon." />
@@ -208,5 +213,190 @@ function NumberInput({ value, onChange, step = 0.01 }: { value: number; onChange
         if (Number.isFinite(parsed)) onChange(parsed);
       }}
     />
+  );
+}
+
+
+/**
+ * Turning the raw multiplier into something a publisher can actually set.
+ *
+ * The BSR→sales curve is an empirical fit for the US store; every other
+ * storefront is scaled by a rough factor. Rather than ask for a number nobody
+ * can guess, this reads the rank of a book whose real sales the owner knows
+ * and works the multiplier out from the gap. Calibration is stored per
+ * storefront, because a correction measured in Spain says nothing about the US.
+ */
+function CalibrationCard() {
+  const { settings, marketplaces, updateSettings, toast } = useApp();
+  const [asin, setAsin] = useState("");
+  const [sales, setSales] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState<{ bsr: number; raw: number; title: string; format: string } | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  if (!settings) return null;
+  const marketplace: MarketplaceId = settings.marketplace;
+  const market = marketplaces.find((m) => m.id === marketplace);
+  const samples = (settings.calibrationSamples ?? []).filter((s) => s.marketplace === marketplace);
+  const active = calibrationFor(settings, marketplace);
+
+  async function read() {
+    const code = asin.trim().toUpperCase().match(/[A-Z0-9]{10}/)?.[0];
+    const actual = Number(sales);
+    if (!code) { setProblem("Escribe un ASIN válido o pega la URL del libro."); return; }
+    if (!Number.isFinite(actual) || actual <= 0) { setProblem("Indica cuántas unidades vendes al mes (un número mayor que cero)."); return; }
+
+    setBusy(true);
+    setProblem(null);
+    setReading(null);
+    try {
+      const response = await api.book(code, marketplace, true);
+      const bsr = response.detail.bsr;
+      if (!bsr) {
+        setProblem("Amazon no muestra clasificación para ese libro ahora mismo, así que no hay nada con lo que comparar. Prueba con otro título o vuelve a intentarlo.");
+        return;
+      }
+      const format = response.detail.format ?? "paperback";
+      // What the curve would say with no correction at all.
+      const raw = salesPerMonth(bsr, format, marketplace, 1) ?? 0;
+      if (raw <= 0) {
+        setProblem("La curva no devuelve una estimación utilizable para ese rango.");
+        return;
+      }
+      setReading({ bsr, raw, title: response.detail.title ?? code, format });
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : "No se pudo leer la ficha");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function apply() {
+    if (!reading || !settings) return;
+    const sample: CalibrationSample = {
+      id: crypto.randomUUID(),
+      asin: asin.trim().toUpperCase().match(/[A-Z0-9]{10}/)?.[0] ?? "",
+      marketplace,
+      title: reading.title,
+      format: reading.format as CalibrationSample["format"],
+      bsr: reading.bsr,
+      actualSalesPerMonth: Number(sales),
+      rawEstimate: reading.raw,
+      capturedAt: Date.now(),
+    };
+    const all = [...(settings.calibrationSamples ?? []).filter((s) => s.asin !== sample.asin || s.marketplace !== marketplace), sample];
+    const forMarket = all.filter((s) => s.marketplace === marketplace);
+    const multiplier = suggestCalibration(forMarket);
+    if (multiplier === null) return;
+
+    await updateSettings({
+      calibrationSamples: all,
+      calibrationByMarket: { ...(settings.calibrationByMarket ?? {}), [marketplace]: multiplier },
+    });
+    setReading(null);
+    setAsin("");
+    setSales("");
+    toast(`${market?.label ?? marketplace} calibrado a ×${multiplier.toFixed(2)}`, "good");
+  }
+
+  async function removeSample(sample: CalibrationSample) {
+    if (!settings) return;
+    const all = (settings.calibrationSamples ?? []).filter((s) => s.id !== sample.id);
+    const forMarket = all.filter((s) => s.marketplace === marketplace);
+    const multiplier = suggestCalibration(forMarket);
+    const byMarket = { ...(settings.calibrationByMarket ?? {}) };
+    if (multiplier === null) delete byMarket[marketplace];
+    else byMarket[marketplace] = multiplier;
+    await updateSettings({ calibrationSamples: all, calibrationByMarket: byMarket });
+  }
+
+  const suggestion = reading ? Math.round((Number(sales) / reading.raw) * 100) / 100 : null;
+
+  return (
+    <Card>
+      <CardHead
+        title="Calibrar con tus ventas reales"
+        note={`Ajusta las estimaciones de ${market?.label ?? marketplace} a partir de un libro cuyas ventas conoces.`}
+      >
+        <Badge tone={settings.calibrationByMarket?.[marketplace] ? "good" : "neutral"}>
+          {market?.flag} ×{active.toFixed(2)}
+          {settings.calibrationByMarket?.[marketplace] ? " · medido" : " · sin calibrar"}
+        </Badge>
+      </CardHead>
+
+      <div className="card-pad stack">
+        <Alert tone="info">
+          La curva BSR→ventas está ajustada sobre la tienda de EE.&nbsp;UU.; el resto de tiendas usan un
+          factor aproximado. Un solo libro tuyo convierte esa suposición en un dato: la app lee su
+          clasificación y calcula cuánto se desvía de tus ventas reales.
+        </Alert>
+
+        <div className="grid grid-2">
+          <Field label="ASIN de un libro tuyo" help="También vale pegar la URL de Amazon.">
+            <input className="input mono" value={asin} placeholder="B0FQ1NPPM8" onChange={(e) => setAsin(e.target.value)} />
+          </Field>
+          <Field label="Unidades que vende al mes" help="Tu cifra real de KDP. Si tienes ventas de un año, divide entre 12.">
+            <input className="input" type="number" min={0} step={0.5} value={sales} placeholder="1.75" onChange={(e) => setSales(e.target.value)} />
+          </Field>
+        </div>
+
+        <div className="row">
+          <Button variant="primary" loading={busy} icon={<Icon.Activity size={15} />} onClick={read}>
+            Leer BSR y calcular
+          </Button>
+        </div>
+
+        {problem ? <Alert tone="warn">{problem}</Alert> : null}
+
+        {reading && suggestion !== null ? (
+          <Alert tone="good">
+            <strong>{reading.title.slice(0, 70)}</strong>
+            <div className="small" style={{ marginTop: 6, lineHeight: 1.7 }}>
+              Con BSR <strong>{fmtCompact(reading.bsr)}</strong> la curva sin calibrar estimaría{" "}
+              <strong>{fmtNum(reading.raw, 2)}</strong> ventas/mes. Tú vendes <strong>{sales}</strong>.
+              <br />
+              Multiplicador sugerido para {market?.label}: <strong>×{suggestion.toFixed(2)}</strong>
+              {suggestion > 3 || suggestion < 0.33
+                ? " — es una desviación grande; comprueba la cifra de ventas antes de aplicarla."
+                : ""}
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <Button variant="primary" onClick={apply} icon={<Icon.Check size={15} />}>
+                Aplicar a {market?.label}
+              </Button>
+              <Button variant="ghost" onClick={() => setReading(null)}>Descartar</Button>
+            </div>
+          </Alert>
+        ) : null}
+
+        {samples.length ? (
+          <div>
+            <div className="small faint" style={{ marginBottom: 6 }}>
+              Libros de referencia ({samples.length}). Con varios, se usa la mediana para que un título
+              atípico no arrastre toda la tienda.
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Libro</th><th className="num">BSR</th><th className="num">Reales</th><th className="num">Sin calibrar</th><th className="num">Factor</th><th></th></tr></thead>
+                <tbody>
+                  {samples.map((sample) => (
+                    <tr key={sample.id}>
+                      <td className="truncate" style={{ maxWidth: 260 }}>{sample.title}</td>
+                      <td className="num">{fmtCompact(sample.bsr)}</td>
+                      <td className="num">{fmtNum(sample.actualSalesPerMonth, 2)}</td>
+                      <td className="num faint">{fmtNum(sample.rawEstimate, 2)}</td>
+                      <td className="num">×{(sample.actualSalesPerMonth / sample.rawEstimate).toFixed(2)}</td>
+                      <td>
+                        <Button size="sm" variant="ghost" onClick={() => removeSample(sample)}><Icon.Trash size={14} /></Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </Card>
   );
 }

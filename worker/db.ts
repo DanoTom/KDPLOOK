@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   royaltyRate: 0.6,
   printing: DEFAULT_PRINTING_COSTS,
   salesCurveCalibration: 1,
+  calibrationByMarket: {},
+  calibrationSamples: [],
   theme: "dark",
   locale: "es",
 };
@@ -56,6 +58,13 @@ export async function saveSettings(env: Env, patch: Partial<AppSettings>): Promi
   next.cacheTtlHours = clamp(next.cacheTtlHours, 0, 24 * 14);
   next.salesCurveCalibration = clamp(next.salesCurveCalibration, 0.05, 20);
   next.weakReviewThreshold = clamp(next.weakReviewThreshold, 1, 100000);
+  // A calibration comes from user-entered sales figures, so guard the range.
+  next.calibrationByMarket = Object.fromEntries(
+    Object.entries(next.calibrationByMarket ?? {})
+      .filter(([, value]) => typeof value === "number" && Number.isFinite(value) && value > 0)
+      .map(([market, value]) => [market, clamp(value as number, 0.05, 20)]),
+  ) as AppSettings["calibrationByMarket"];
+  next.calibrationSamples = (next.calibrationSamples ?? []).slice(0, 40);
 
   await env.DB.prepare(
     "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) " +

@@ -15,7 +15,7 @@ import { bestsellerUrl, parseBestsellerPage } from "../worker/amazon/category";
 import { getMarketplace, suggestUrl } from "../worker/amazon/marketplaces";
 import { looksBlocked } from "../worker/amazon/fetcher";
 import { parseDate, parseInteger, parsePrice } from "../worker/amazon/html";
-import { salesPerMonth } from "../shared/analytics/bsr";
+import { calibrationFor, salesPerMonth, suggestCalibration } from "../shared/analytics/bsr";
 import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost } from "../shared/analytics/royalty";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -265,6 +265,33 @@ console.log("\ncurva de ventas");
     "la calibracion escala la estimacion",
     Math.abs((salesPerMonth(10_000, "paperback", "com", 2) ?? 0) - 2 * (salesPerMonth(10_000, "paperback", "com") ?? 0)) < 0.5,
   );
+}
+
+console.log("\ncalibracion de la curva");
+{
+  // The multiplier that makes the curve match a figure the publisher knows.
+  check("un libro de referencia", suggestCalibration([{ actualSalesPerMonth: 1.75, rawEstimate: 1.2 }]), 1.46);
+  check("con varios se usa la mediana", suggestCalibration([
+    { actualSalesPerMonth: 2, rawEstimate: 1 },
+    { actualSalesPerMonth: 3, rawEstimate: 1 },
+    { actualSalesPerMonth: 30, rawEstimate: 1 },
+  ]), 3);
+  check("sin muestras no hay sugerencia", suggestCalibration([]), null);
+  check("una estimacion nula se ignora", suggestCalibration([{ actualSalesPerMonth: 5, rawEstimate: 0 }]), null);
+
+  const base = {
+    salesCurveCalibration: 1.5,
+    calibrationByMarket: { es: 4 },
+  } as unknown as Parameters<typeof calibrationFor>[0];
+  check("la tienda calibrada usa su propio factor", calibrationFor(base, "es"), 4);
+  check("las demas heredan el global", calibrationFor(base, "com"), 1.5);
+
+  // Calibrating Spain must not move the US numbers.
+  const spain = salesPerMonth(200_000, "paperback", "es", calibrationFor(base, "es")) ?? 0;
+  const us = salesPerMonth(200_000, "paperback", "com", calibrationFor(base, "com")) ?? 0;
+  truthy("espana escala con su factor medido", spain > 0);
+  truthy("estados unidos no se ve afectado",
+    Math.abs(us - (salesPerMonth(200_000, "paperback", "com", 1.5) ?? 0)) < 0.001);
 }
 
 console.log("\nregalias");
