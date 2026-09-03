@@ -35,6 +35,10 @@ interface RawScan {
   scannedAt: number;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const EMPTY_PROGRESS: ScanProgress = { phase: "idle", label: "", done: 0, total: 0 };
 
 /**
@@ -120,45 +124,68 @@ export function useNicheScan(settings: AppSettings) {
     // --- enrichment ---------------------------------------------------------
     const organic = items.filter((item) => !item.sponsored);
     const targets = organic.slice(0, Math.max(0, Math.min(40, params.enrich)));
-    const batches: string[][] = [];
-    for (let i = 0; i < targets.length; i += 8) batches.push(targets.slice(i, i + 8).map((item) => item.asin));
-
     let enrichedCount = 0;
     let blocked = false;
+    let aborted = false;
 
-    for (let index = 0; index < batches.length; index++) {
-      if (cancelled.current) return;
+    /** Enrich a list of ASINs in batches, returning the ones Amazon refused. */
+    const enrichBatch = async (asins: string[], labelFor: (done: number) => string): Promise<string[]> => {
+      const failed: string[] = [];
+      for (let i = 0; i < asins.length; i += 8) {
+        if (cancelled.current) return failed;
+        setProgress({ phase: "enrich", label: labelFor(enrichedCount), done: enrichedCount, total: targets.length });
+        try {
+          const response = await api.enrich({
+            asins: asins.slice(i, i + 8),
+            marketplace: params.marketplace,
+            noCache: params.noCache,
+          });
+          if (response.blocked) blocked = true;
+          for (const detail of response.details) {
+            const book = collected.get(detail.asin);
+            if (book) collected.set(detail.asin, mergeDetail(book, detail));
+          }
+          enrichedCount += response.details.length;
+          failed.push(...response.failed);
+        } catch (err) {
+          const apiError = err instanceof ApiError ? err : null;
+          if (apiError?.blocked) blocked = true;
+          warnings.push(`Enriquecimiento interrumpido: ${apiError?.message ?? "fallo de red"}`);
+          aborted = true;
+          return failed.concat(asins.slice(i));
+        }
+      }
+      return failed;
+    };
+
+    let pending = await enrichBatch(
+      targets.map((item) => item.asin),
+      (done) => `Obteniendo BSR y datos de ficha (${done}/${targets.length})`,
+    );
+
+    // Amazon refuses a share of detail pages on any given pass, and the same
+    // request usually succeeds moments later. Retrying just the refused ones,
+    // after a pause, recovers most of them without repeating the whole scan.
+    for (let round = 1; round <= 2 && pending.length > 0 && !aborted && !cancelled.current; round++) {
       setProgress({
         phase: "enrich",
-        label: `Obteniendo BSR y datos de ficha (${enrichedCount}/${targets.length})`,
+        label: `Amazon rechazó ${pending.length} fichas · reintento ${round} de 2`,
         done: enrichedCount,
         total: targets.length,
       });
-      try {
-        const response = await api.enrich({
-          asins: batches[index],
-          marketplace: params.marketplace,
-          noCache: params.noCache,
-        });
-        if (response.blocked) blocked = true;
-        for (const detail of response.details) {
-          const book = collected.get(detail.asin);
-          if (book) collected.set(detail.asin, mergeDetail(book, detail));
-        }
-        enrichedCount += response.details.length;
-        if (response.failed.length) {
-          warnings.push(`${response.failed.length} fichas no se pudieron leer (${response.failed.slice(0, 3).join(", ")}…)`);
-        }
-      } catch (err) {
-        const apiError = err instanceof ApiError ? err : null;
-        if (apiError?.blocked) blocked = true;
-        warnings.push(`Enriquecimiento interrumpido: ${apiError?.message ?? "fallo de red"}`);
-        break;
-      }
+      await sleep(2500 * round);
+      if (cancelled.current) return;
+      pending = await enrichBatch(pending, () => `Reintentando fichas bloqueadas (${enrichedCount}/${targets.length})`);
     }
 
-    if (blocked) {
-      warnings.push("Amazon bloqueó parte de las peticiones de ficha; los datos de BSR están incompletos.");
+    if (pending.length) {
+      warnings.push(
+        `${pending.length} de ${targets.length} fichas siguen sin leerse tras dos reintentos ` +
+        `(${pending.slice(0, 3).join(", ")}${pending.length > 3 ? "…" : ""}).`,
+      );
+    }
+    if (blocked && pending.length) {
+      warnings.push("Amazon bloqueó parte de las peticiones; los datos de BSR están incompletos. Prueba de nuevo en unos minutos o baja el paralelismo en Ajustes.");
     }
 
     setRaw({

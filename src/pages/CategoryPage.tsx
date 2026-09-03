@@ -62,19 +62,39 @@ export function CategoryPage() {
 
     // Enrich in the same batches a niche scan uses, so the Worker budgets hold.
     const collected: BookRecord[] = [];
-    for (let i = 0; i < targets.length; i += 8) {
-      setProgress({ label: `Leyendo fichas (${collected.length}/${targets.length})`, done: collected.length, total: targets.length });
-      try {
-        const response = await api.enrich({ asins: targets.slice(i, i + 8), marketplace });
-        for (const detail of response.details) {
-          const position = targets.indexOf(detail.asin) + 1;
-          collected.push(bookFromDetail(detail, marketplace, position));
+    let aborted = false;
+
+    const readBatch = async (asins: string[], label: (done: number) => string): Promise<string[]> => {
+      const failed: string[] = [];
+      for (let i = 0; i < asins.length; i += 8) {
+        setProgress({ label: label(collected.length), done: collected.length, total: targets.length });
+        try {
+          const response = await api.enrich({ asins: asins.slice(i, i + 8), marketplace });
+          for (const detail of response.details) {
+            collected.push(bookFromDetail(detail, marketplace, targets.indexOf(detail.asin) + 1));
+          }
+          failed.push(...response.failed);
+        } catch (err) {
+          const apiError = err instanceof ApiError ? err : null;
+          setWarning(`Muestra incompleta: ${apiError?.message ?? "fallo de red"}`);
+          aborted = true;
+          return failed.concat(asins.slice(i));
         }
-      } catch (err) {
-        const apiError = err instanceof ApiError ? err : null;
-        setWarning(`Muestra incompleta: ${apiError?.message ?? "fallo de red"}`);
-        break;
       }
+      return failed;
+    };
+
+    let pending = await readBatch(targets, (done) => `Leyendo fichas (${done}/${targets.length})`);
+
+    // The same pages usually load moments later, so retry only the refused ones.
+    for (let round = 1; round <= 2 && pending.length > 0 && !aborted; round++) {
+      setProgress({ label: `Amazon rechazó ${pending.length} fichas · reintento ${round} de 2`, done: collected.length, total: targets.length });
+      await new Promise((resolve) => setTimeout(resolve, 2500 * round));
+      pending = await readBatch(pending, (done) => `Reintentando fichas bloqueadas (${done}/${targets.length})`);
+    }
+
+    if (pending.length) {
+      setWarning(`${pending.length} de ${targets.length} fichas siguen sin leerse tras dos reintentos. Las métricas usan la muestra disponible.`);
     }
 
     // Keep bestseller order; a book whose page failed simply leaves a gap.
