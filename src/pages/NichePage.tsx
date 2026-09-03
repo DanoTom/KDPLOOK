@@ -10,6 +10,7 @@ import { downloadCsv, toCsv } from "../lib/csv";
 import { fmtCompact, fmtDate, fmtInt, fmtMoney, fmtNum, fmtPct, slug, toneForCompetition, toneForScore } from "../lib/format";
 import { buildEntryPlan } from "../../shared/analytics/entry";
 import { reviewExpertise } from "../../shared/analytics/checklist";
+import { monthNames, seasonInsight } from "../../shared/analytics/season";
 import { useNicheScan, type Department } from "../lib/scan";
 import { useRoute } from "../router";
 import { useApp, useSettings } from "../state";
@@ -305,6 +306,8 @@ function NicheReport({
 
   return (
     <div className="stack-lg">
+      <SeasonBanner keyword={summary.keyword} />
+
       <ExpertGates items={items} summary={summary} />
 
       <div className="report-head">
@@ -535,6 +538,22 @@ function EntryPlanCard({ items, currency }: { items: BookRecord[]; currency: str
           </div>
         ) : null}
 
+        {plan.golden ? (
+          <div className="signal" style={{ alignItems: "flex-start" }}>
+            <span className={`badge badge-${plan.golden.fits ? "good" : "warn"}`} style={{ borderRadius: 7, minWidth: 26, justifyContent: "center" }}>
+              {plan.golden.fits ? "✓" : "!"}
+            </span>
+            <div className="signal-body">
+              <div className="signal-label">Combinación dorada</div>
+              <div className="signal-value">
+                {plan.golden.pages} págs. B/N a {fmtMoney(plan.golden.priceLow, currency)}–{fmtMoney(plan.golden.priceHigh, currency)}
+                {" → "}{fmtMoney(plan.golden.royaltyLow, currency)}–{fmtMoney(plan.golden.royaltyHigh, currency)} por ejemplar
+              </div>
+              <div className="signal-hint">{plan.golden.advice}</div>
+            </div>
+          </div>
+        ) : null}
+
         {plan.notes.length ? (
           <ul className="small faint" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
             {plan.notes.map((note) => <li key={note}>{note}</li>)}
@@ -609,5 +628,32 @@ function ExpertGates({ items, summary }: { items: BookRecord[]; summary: NicheSu
         </div>
       </div>
     </Card>
+  );
+}
+
+
+/**
+ * A scan is a photograph, and a seasonal niche looks like a different market
+ * depending on the month it is taken. Saying so up front stops every figure
+ * below from being read as a yearly average.
+ */
+function SeasonBanner({ keyword }: { keyword: string }) {
+  const insight = useMemo(() => seasonInsight(keyword), [keyword]);
+  if (!insight.profile) return null;
+
+  const tone = insight.phase === "pico" ? "warn" : insight.phase === "entrando" ? "good" : "info";
+
+  return (
+    <Alert tone={tone}>
+      <strong>{insight.headline}</strong>
+      <div className="small" style={{ marginTop: 4, lineHeight: 1.6 }}>{insight.advice}</div>
+      <div className="tiny faint" style={{ marginTop: 6 }}>
+        {insight.profile.label} · pico en {monthNames(insight.profile.peak)}
+        {insight.profile.trough.length ? ` · flojo en ${monthNames(insight.profile.trough)}` : ""}
+        {insight.profile.source === "inferido"
+          ? " · este grupo no está en tu guía, lo deduje yo: corrígeme si no encaja"
+          : " · según tu guía"}
+      </div>
+    </Alert>
   );
 }

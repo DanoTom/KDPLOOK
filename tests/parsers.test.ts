@@ -20,6 +20,7 @@ import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost } from "../shared/
 import { buildEntryPlan } from "../shared/analytics/entry";
 import { summariseNiche } from "../shared/analytics/score";
 import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
+import { seasonInsight } from "../shared/analytics/season";
 import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -462,6 +463,77 @@ console.log("\ncriterios de entrada del operador");
 
   const blind = reviewExpertise([], { marketplace: "es", totalResults: null, settings });
   check("sin datos no se pronuncia", blind.tone, "unknown");
+}
+
+console.log("\nestacionalidad");
+{
+  const sept = new Date("2026-09-03T12:00:00Z");
+  const teacher = seasonInsight("agenda docente 2026 2027", sept);
+  check("reconoce la vuelta al cole", teacher.profile?.id, "vuelta-al-cole");
+  check("septiembre es su pico", teacher.phase, "pico");
+  truthy("avisa de que las cifras son el techo", /techo del a[ñn]o/.test(teacher.advice));
+
+  // The same niche measured in spring reads as dead, and that is also wrong.
+  const march = seasonInsight("agenda docente", new Date("2026-03-10T12:00:00Z"));
+  check("en marzo esta en valle", march.phase, "valle");
+  truthy("invita a volver a medirlo en temporada", /vuelve a medirlo/.test(march.advice));
+
+  const diet = seasonInsight("diario de dieta y nutricion", new Date("2026-01-15T12:00:00Z"));
+  check("bienestar en enero es pico", diet.phase, "pico");
+  check("bienestar viene de la guia", diet.profile?.source, "guía");
+
+  const gift = seasonInsight("libro de curiosidades para regalo", new Date("2026-11-20T12:00:00Z"));
+  check("regalo en noviembre es pico", gift.phase, "pico");
+
+  const neutral = seasonInsight("contabilidad para autonomos", sept);
+  check("un nicho sin estacionalidad no inventa una", neutral.profile, null);
+  check("y no da consejo estacional", neutral.phase, "neutro");
+
+  // Publishing just before the season starts is the moment that matters.
+  const beforePeak = seasonInsight("libro para colorear", new Date("2026-05-20T12:00:00Z"));
+  check("mayo precede al pico de verano", beforePeak.phase, "entrando");
+  truthy("recomienda publicar ahora", /Buen momento para publicar/.test(beforePeak.advice));
+}
+
+console.log("\ncombinacion dorada");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const mk = (position: number, price: number, pages: number): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `T${position}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price, rating: 4.4, reviews: 20,
+    sponsored: false, kindleUnlimited: false, position, bsr: 40_000, categoryRanks: [], pages,
+    publisher: null, publishedAt: null, language: null, isbn: null, dimensions: null,
+    selfPublished: true, enriched: true, salesPerMonth: 25, revenuePerMonth: 100,
+    royaltyPerUnit: 4, ageMonths: 5, weakness: 60,
+  });
+
+  const onTarget = buildEntryPlan({
+    items: Array.from({ length: 10 }, (_, i) => mk(i + 1, 11.99, 104)),
+    settings, marketplace: "es", targetIncome: 300, reviewsPerHundredSales: 1,
+  });
+  truthy("un nicho al precio y extension objetivo encaja", onTarget.golden?.fits === true);
+  // 9.99 * 0.6 - 2.30 flat print fee under 108 pages.
+  check("regalia en el extremo bajo del rango", onTarget.golden?.royaltyLow, 3.69);
+  check("regalia en el extremo alto", onTarget.golden?.royaltyHigh, 5.49);
+
+  const tooLong = buildEntryPlan({
+    items: Array.from({ length: 10 }, (_, i) => mk(i + 1, 12.99, 200)),
+    settings, marketplace: "es", targetIncome: 300, reviewsPerHundredSales: 1,
+  });
+  truthy("200 paginas no encaja", tooLong.golden?.fits === false);
+  // 1.00 + 0.012*200 = 3.40 against the 2.30 flat fee.
+  check("cuantifica el sobrecoste de impresion", tooLong.golden?.extraPrintCost, 1.1);
+  truthy("lo explica en las notas", tooLong.notes.some((n) => /108 p[áa]ginas/.test(n)));
+
+  const cheap = buildEntryPlan({
+    items: Array.from({ length: 10 }, (_, i) => mk(i + 1, 6.99, 104)),
+    settings, marketplace: "es", targetIncome: 300, reviewsPerHundredSales: 1,
+  });
+  truthy("un nicho barato no encaja", cheap.golden?.fits === false);
+  truthy("avisa del margen", cheap.notes.some((n) => /por debajo del objetivo/.test(n)));
 }
 
 console.log("\nregalias");

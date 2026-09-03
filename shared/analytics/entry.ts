@@ -34,6 +34,26 @@ export interface EntryPlan {
   feasibility: "alcanzable" | "exigente" | "duro" | "sin datos";
   headline: string;
   notes: string[];
+  /** The guide's price/length target, and how this niche compares to it. */
+  golden: GoldenCombo | null;
+}
+
+/**
+ * The "combinación dorada" from the operator guide: 104 pages of black ink on
+ * 8.5 x 11, priced 9.99-12.99, which clears 4.50-6.00 a copy. The page count is
+ * not arbitrary — Amazon charges a flat print fee up to 108 pages and switches
+ * to per-page above it, so 104 buys the most book for the least cost.
+ */
+export interface GoldenCombo {
+  pages: number;
+  priceLow: number;
+  priceHigh: number;
+  royaltyLow: number;
+  royaltyHigh: number;
+  /** Cost of the niche's own median length versus the 104-page target. */
+  extraPrintCost: number | null;
+  fits: boolean;
+  advice: string;
 }
 
 export interface EntryPlanInput {
@@ -110,7 +130,11 @@ export function buildEntryPlan(input: EntryPlanInput): EntryPlan {
     notes.push("A ese precio y con esa extensión la impresión se come la regalía: necesitarías menos páginas o un precio más alto.");
   }
 
+  const golden = buildGolden(settings, input.marketplace, suggestedPrice, suggestedPages);
+  if (golden && !golden.fits) notes.push(golden.advice);
+
   return {
+    golden,
     targetPosition: target?.position ?? null,
     targetTitle: target?.title ?? null,
     targetSalesPerMonth: targetSales,
@@ -125,6 +149,55 @@ export function buildEntryPlan(input: EntryPlanInput): EntryPlan {
     feasibility,
     headline: headlineFor(feasibility, targetSales, aim),
     notes,
+  };
+}
+
+const GOLDEN_PAGES = 104;
+const GOLDEN_PRICE_LOW = 9.99;
+const GOLDEN_PRICE_HIGH = 12.99;
+
+function buildGolden(
+  settings: AppSettings,
+  marketplace: MarketplaceId,
+  nichePrice: number | null,
+  nichePages: number | null,
+): GoldenCombo | null {
+  const royaltyAt = (price: number, pages: number) =>
+    computeRoyalty(
+      { price, pages, format: "paperback", ink: "bw", trim: "regular", marketplace },
+      settings.printing,
+    );
+
+  const low = royaltyAt(GOLDEN_PRICE_LOW, GOLDEN_PAGES);
+  const high = royaltyAt(GOLDEN_PRICE_HIGH, GOLDEN_PAGES);
+
+  // Past 108 pages the flat print fee gives way to a per-page charge, so the
+  // gap between the niche's typical length and the target is real money.
+  const extraPrintCost = nichePages !== null
+    ? Math.round((royaltyAt(GOLDEN_PRICE_LOW, nichePages).printingCost - low.printingCost) * 100) / 100
+    : null;
+
+  const priceFits = nichePrice === null || nichePrice >= GOLDEN_PRICE_LOW;
+  const lengthFits = nichePages === null || nichePages <= 110;
+
+  let advice: string;
+  if (!priceFits) {
+    advice = `El precio mediano del nicho (${nichePrice?.toFixed(2)}) queda por debajo del objetivo de ${GOLDEN_PRICE_LOW}: la regalía no daría margen para publicidad.`;
+  } else if (!lengthFits && extraPrintCost !== null && extraPrintCost > 0) {
+    advice = `Los competidores rondan las ${nichePages} páginas. Bajar a ${GOLDEN_PAGES} ahorraría ${extraPrintCost.toFixed(2)} de impresión por ejemplar: Amazon cobra tarifa plana hasta 108 páginas y por página a partir de ahí.`;
+  } else {
+    advice = `Este nicho encaja con la combinación dorada: ${GOLDEN_PAGES} páginas a ${GOLDEN_PRICE_LOW}-${GOLDEN_PRICE_HIGH}.`;
+  }
+
+  return {
+    pages: GOLDEN_PAGES,
+    priceLow: GOLDEN_PRICE_LOW,
+    priceHigh: GOLDEN_PRICE_HIGH,
+    royaltyLow: low.royaltyPerUnit,
+    royaltyHigh: high.royaltyPerUnit,
+    extraPrintCost,
+    fits: priceFits && lengthFits,
+    advice,
   };
 }
 
