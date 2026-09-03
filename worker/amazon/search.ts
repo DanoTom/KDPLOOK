@@ -167,12 +167,24 @@ function extractFormat(block: string): { format: BookFormat; label: string } {
 }
 
 function extractPrice(block: string): number | null {
-  const offscreen = firstMatch(block, [
+  // The live price, whose container is `a-price` and nothing else.
+  const exact = parsePrice(firstMatch(block, [
     /<span class="a-price"[^>]*>\s*<span class="a-offscreen">([^<]+)<\/span>/i,
-    /<span[^>]*class="[^"]*a-offscreen[^"]*"[^>]*>([^<]+)<\/span>/i,
-  ]);
-  const price = parsePrice(offscreen);
-  if (price) return price;
+  ]));
+  if (exact) return exact;
+
+  // Falling back to any offscreen price risks picking up the struck-through
+  // list price, which lives in an `a-text-price` container — a card showing
+  // "19,99 € 12,99 €" would be read at the higher figure and inflate every
+  // royalty derived from it. Skip the ones that sit inside one.
+  const offscreenRe = /<span[^>]*class="[^"]*a-offscreen[^"]*"[^>]*>([^<]+)<\/span>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = offscreenRe.exec(block)) !== null) {
+    const before = block.slice(Math.max(0, match.index - 200), match.index);
+    if (/a-text-price/i.test(before)) continue;
+    const price = parsePrice(match[1]);
+    if (price) return price;
+  }
 
   const whole = firstMatch(block, [/<span class="a-price-whole">([\d.,\s]+)/i]);
   const fraction = firstMatch(block, [/<span class="a-price-fraction">(\d+)</i]);

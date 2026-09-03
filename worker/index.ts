@@ -13,7 +13,7 @@ import {
   recentFetches, recordRankPoint, removeWatch, saveKeywordRun, saveNiche, saveSettings, trimFetchLog,
   updateNiche,
 } from "./db";
-import { fetchPage, mapWithConcurrency } from "./amazon/fetcher";
+import { fetchPage, looksBlocked, mapWithConcurrency } from "./amazon/fetcher";
 import { getMarketplace, marketplaceList, productUrl, searchUrl } from "./amazon/marketplaces";
 import { parseSearchPage } from "./amazon/search";
 import { parseProductPage, type ProductDetail } from "./amazon/product";
@@ -717,6 +717,83 @@ app.post("/api/cache/purge", async (c) => {
  * fastest way to tell "Amazon blocked us" apart from "our selectors went stale"
  * when a scan comes back empty.
  */
+/**
+ * Run the parsers over a page and report what they made of it.
+ *
+ * Shared by the probe that fetches a page and the one handed a page that was
+ * already open in a browser: the parsers are pure functions of the markup, so
+ * where it came from changes nothing about the diagnosis.
+ */
+function analysePage(
+  html: string,
+  kind: "search" | "product" | "category",
+  marketplaceId: string,
+  asinHint: string | null,
+): unknown {
+  if (kind === "category") {
+    const listing = parseBestsellerPage(html);
+    return {
+      name: listing.name,
+      breadcrumb: listing.breadcrumb,
+      asinCount: listing.asins.length,
+      firstAsins: listing.asins.slice(0, 10),
+      children: listing.children.slice(0, 12),
+    };
+  }
+  if (kind === "product") {
+    return parseProductPage(html, (asinHint ?? "0000000000").toUpperCase());
+  }
+  const parsed = parseSearchPage(html, getMarketplace(marketplaceId), 0, 8);
+  return {
+    totalResults: parsed.totalResults,
+    resultsCountText: parsed.resultsCountText,
+    rawItemCount: parsed.rawItemCount,
+    noResults: parsed.noResults,
+    pageHint: parsed.pageHint,
+    firstItems: parsed.items.slice(0, 5),
+  };
+}
+
+/**
+ * Diagnose a page this Worker was handed rather than fetched.
+ *
+ * Amazon serves datacenter addresses differently from a person's browser — a
+ * refusal, or a shorter results page — and this project is developed somewhere
+ * Amazon cannot be reached at all. Pasting the markup from a page already open
+ * in a browser closes both gaps at once: the parsers meet the real page, and
+ * the same report comes back as for a fetched one.
+ */
+app.post("/api/debug/parse", async (c) => {
+  const body = await readJson<{
+    html?: string; kind?: "search" | "product" | "category"; marketplace?: string; asin?: string;
+  }>(c);
+  const html = body.html ?? "";
+  if (html.trim().length < 200) {
+    return c.json({ error: "Pega el HTML completo de la página (Ctrl+U → seleccionar todo → copiar)." }, 400);
+  }
+
+  const settings = await withSettings(c);
+  const marketplaceId = body.marketplace ?? settings.marketplace;
+  const kind = body.kind
+    ?? (/id="productTitle"/i.test(html) ? "product"
+      : /zg-ordered-list|id="zg-ordered-list"|gridItemRoot/i.test(html) ? "category"
+      : "search");
+
+  return c.json({
+    ok: true,
+    source: "pegado",
+    kind,
+    // 200 stands in for the status: a page copied out of a browser arrived
+    // fine by definition, so only the markup can say it is a block page.
+    blocked: looksBlocked(200, html),
+    bodyLength: html.length,
+    title: /<title>([^<]{0,200})<\/title>/i.exec(html)?.[1] ?? null,
+    snippet: html.slice(0, 900),
+    ...probeDiagnostics(html, kind),
+    parsed: analysePage(html, kind, marketplaceId, body.asin ?? /\/dp\/([A-Z0-9]{10})/i.exec(html)?.[1] ?? null),
+  });
+});
+
 app.post("/api/debug/probe", async (c) => {
   const body = await readJson<{ url?: string; kind?: "search" | "product" | "category" }>(c);
   const target = body.url ?? "";
@@ -735,31 +812,14 @@ app.post("/api/debug/probe", async (c) => {
   const outcome = await fetchPage(c.env, settings, target, { attempts: 1 });
   const kind = body.kind ?? detectProbeKind(parsedUrl.pathname);
 
-  let parsedSummary: unknown = null;
-  if (outcome.ok) {
-    if (kind === "category") {
-      const listing = parseBestsellerPage(outcome.body);
-      parsedSummary = {
-        name: listing.name,
-        breadcrumb: listing.breadcrumb,
-        asinCount: listing.asins.length,
-        firstAsins: listing.asins.slice(0, 10),
-        children: listing.children.slice(0, 12),
-      };
-    } else if (kind === "product") {
-      const asin = /\/dp\/([A-Z0-9]{10})/i.exec(parsedUrl.pathname)?.[1] ?? "0000000000";
-      parsedSummary = parseProductPage(outcome.body, asin.toUpperCase());
-    } else {
-      const marketplace = getMarketplace(parsedUrl.hostname.replace(/^www\.amazon\./, ""));
-      const parsed = parseSearchPage(outcome.body, marketplace, 0, 8);
-      parsedSummary = {
-        totalResults: parsed.totalResults,
-        resultsCountText: parsed.resultsCountText,
-        rawItemCount: parsed.rawItemCount,
-        firstItems: parsed.items.slice(0, 5),
-      };
-    }
-  }
+  const parsedSummary = outcome.ok
+    ? analysePage(
+        outcome.body,
+        kind,
+        parsedUrl.hostname.replace(/^www\.amazon\./, ""),
+        /\/dp\/([A-Z0-9]{10})/i.exec(parsedUrl.pathname)?.[1] ?? null,
+      )
+    : null;
 
   return c.json({
     ok: outcome.ok,

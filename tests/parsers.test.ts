@@ -786,6 +786,31 @@ console.log("\nrutas cercanas a una frase");
   truthy("el plural sobrevive al recorte", long.includes("libro actividades ninos pequeno especiales"));
 }
 
+console.log("\nprecio tachado frente a precio real");
+{
+  const es = getMarketplace("es");
+  // Amazon shows the list price struck through next to the live one. Reading
+  // the first offscreen figure it finds picks the wrong one and inflates every
+  // royalty derived from it.
+  const card =
+    `<div class="s-main-slot"><div data-asin="B0TACHADO1" data-component-type="s-search-result">` +
+    `<h2 aria-label="Agenda de prueba"><span>Agenda de prueba</span></h2>` +
+    `<span class="a-price a-text-price"><span class="a-offscreen">19,99 €</span></span>` +
+    `<span class="a-price"><span class="a-offscreen">12,99 €</span></span>` +
+    `</div></div>`;
+  check("toma el precio vigente, no el tachado", parseSearchPage(card, es).items[0]?.price, 12.99);
+
+  // When the struck-through price is the only figure on the card, nothing is
+  // reported. A list price presented as the selling price would feed a royalty
+  // calculation that is simply wrong; an absent price is visibly absent.
+  const onlyList =
+    `<div class="s-main-slot"><div data-asin="B0TACHADO2" data-component-type="s-search-result">` +
+    `<h2 aria-label="Otra agenda"><span>Otra agenda</span></h2>` +
+    `<span class="a-price a-text-price"><span class="a-offscreen">19,99 €</span></span>` +
+    `</div></div>`;
+  check("y prefiere no dar precio antes que dar el tachado", parseSearchPage(onlyList, es).items[0]?.price, null);
+}
+
 console.log("\npagina de busqueda sin resultados");
 {
   const es = getMarketplace("es");

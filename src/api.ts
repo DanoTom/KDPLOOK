@@ -102,11 +102,14 @@ export interface KeywordScoreDto {
 
 export interface ProbeResponse {
   ok: boolean;
-  status: number;
+  /** "pegado" when the markup was handed over instead of fetched. */
+  source?: string;
+  kind?: string;
+  status?: number;
   blocked: boolean;
-  provider: string;
-  ms: number;
-  attempts: number;
+  provider?: string;
+  ms?: number;
+  attempts?: number;
   bodyLength: number;
   title: string | null;
   snippet: string;
@@ -200,5 +203,9 @@ export const api = {
 
   purgeCache: (all = false) => post<{ ok: boolean; removed: number }>(`/api/cache/purge${all ? "?all=1" : ""}`),
   probe: (url: string, kind?: "search" | "product" | "category") => post<ProbeResponse>("/api/debug/probe", { url, kind }),
+
+  /** Diagnose a page copied out of a browser rather than one this app fetched. */
+  parsePasted: (body: { html: string; marketplace?: string; kind?: "search" | "product" | "category" }) =>
+    post<ProbeResponse>("/api/debug/parse", body),
   fetchLog: () => request<HealthInfo["recentFetches"]>("/api/debug/log"),
 };

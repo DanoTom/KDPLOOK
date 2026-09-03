@@ -14,6 +14,7 @@ export function DiagnosticsPage() {
   const [probeUrl, setProbeUrl] = useState("");
   const [probe, setProbe] = useState<ProbeResponse | null>(null);
   const [probing, setProbing] = useState(false);
+  const [pasted, setPasted] = useState("");
   const [migrating, setMigrating] = useState(false);
 
   const load = useCallback(async () => {
@@ -38,6 +39,27 @@ export function DiagnosticsPage() {
       toast(error instanceof Error ? error.message : "No se pudieron crear las tablas", "bad");
     } finally {
       setMigrating(false);
+    }
+  }
+
+  /**
+   * Diagnose a page the operator already had open.
+   *
+   * Amazon answers a browser and a datacenter differently — a refusal, or a
+   * shorter results page — so when the fetched probe and the real page disagree,
+   * this is the only way to see what the parsers were actually given.
+   */
+  async function runPasted() {
+    const html = pasted.trim();
+    if (html.length < 200) return;
+    setProbing(true);
+    setProbe(null);
+    try {
+      setProbe(await api.parsePasted({ html, marketplace: settings?.marketplace }));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "No se pudo analizar", "bad");
+    } finally {
+      setProbing(false);
     }
   }
 
@@ -124,7 +146,10 @@ export function DiagnosticsPage() {
         )}
 
         <Card>
-          <CardHead title="Sonda manual" note="Descarga una URL de Amazon y muestra qué entiende el parser." />
+          <CardHead
+            title="Sonda manual"
+            note="Descarga una URL de Amazon —o recibe la página que tengas abierta— y muestra qué entiende el parser."
+          />
           <div className="card-pad stack">
             <form className="search-bar" onSubmit={(event) => { event.preventDefault(); void runProbe(); }}>
               <input
@@ -145,14 +170,41 @@ export function DiagnosticsPage() {
               </Button>
             </div>
 
+            <Field
+              label="…o pega la página tal como la ves tú"
+              help="Amazon responde distinto a un navegador que a un servidor: puede rechazar la petición, o devolver menos resultados. Abre la página en tu navegador, pulsa Ctrl+U (ver código fuente), selecciona todo, copia y pega aquí. Se analiza con los mismos lectores, así que dice exactamente qué entiende la app de la página de verdad."
+            >
+              <textarea
+                className="input mono" rows={4} placeholder="<!DOCTYPE html>…"
+                value={pasted} onChange={(event) => setPasted(event.target.value)}
+              />
+            </Field>
+            <div className="row">
+              <Button
+                loading={probing} disabled={pasted.trim().length < 200}
+                icon={<Icon.Activity size={15} />} onClick={() => void runPasted()}
+              >
+                Analizar lo pegado
+              </Button>
+              {pasted ? (
+                <>
+                  <span className="small faint">{(pasted.length / 1024).toFixed(0)} KB pegados</span>
+                  <Button size="sm" variant="ghost" onClick={() => setPasted("")}>Limpiar</Button>
+                </>
+              ) : null}
+            </div>
+
             {probe ? (
               <div className="stack-sm">
                 <div className="row">
                   <Badge tone={probe.ok ? "good" : probe.blocked ? "bad" : "warn"}>
-                    HTTP {probe.status} {probe.blocked ? "· bloqueado" : probe.ok ? "· ok" : ""}
+                    {probe.source === "pegado"
+                      ? `Página pegada${probe.blocked ? " · parece un bloqueo" : ""}`
+                      : `HTTP ${probe.status} ${probe.blocked ? "· bloqueado" : probe.ok ? "· ok" : ""}`}
                   </Badge>
-                  <Badge tone="neutral">{probe.provider}</Badge>
-                  <Badge tone="neutral">{probe.ms} ms · {probe.attempts} intento(s)</Badge>
+                  {probe.kind ? <Badge tone="neutral">{probe.kind}</Badge> : null}
+                  {probe.provider ? <Badge tone="neutral">{probe.provider}</Badge> : null}
+                  {probe.ms !== undefined ? <Badge tone="neutral">{probe.ms} ms · {probe.attempts} intento(s)</Badge> : null}
                   <Badge tone="neutral">{(probe.bodyLength / 1024).toFixed(0)} KB</Badge>
                 </div>
                 {probe.title ? <div className="small muted">Título del documento: {probe.title}</div> : null}
