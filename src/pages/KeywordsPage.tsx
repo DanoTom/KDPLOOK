@@ -101,10 +101,13 @@ export function KeywordsPage() {
 
   /**
    * @param nextSeed the phrase to expand; defaults to whatever is in the box.
-   * @param drill    true when this came from clicking a result, so the trail grows
-   *                 instead of restarting.
+   * @param how      "new" restarts the trail (a fresh seed from the box),
+   *                 "drill" grows it (a result clicked), "back" truncates it to
+   *                 the step chosen — going back is not the same as starting
+   *                 over, and losing the path to get here would make the trail
+   *                 pointless.
    */
-  async function expand(nextSeed?: string, drill = false) {
+  async function expand(nextSeed?: string, how: "new" | "drill" | "back" = "new") {
     const trimmed = (nextSeed ?? seed).trim();
     if (!trimmed) return;
     setSeed(trimmed);
@@ -113,7 +116,14 @@ export function KeywordsPage() {
     setKeywords([]);
     setScores({});
     setSelected(new Set());
-    setTrail((current) => (drill ? [...current.filter((step) => step !== trimmed), trimmed] : [trimmed]));
+    setTrail((current) => {
+      if (how === "new") return [trimmed];
+      // Both cases are the same walk: a step already on the path truncates back
+      // to it, a new one extends. That is what makes going back keep the route
+      // that led here instead of starting over.
+      const index = current.indexOf(trimmed);
+      return index >= 0 ? current.slice(0, index + 1) : [...current, trimmed];
+    });
 
     const groups: ProbeGroup[] = mode === "quick" ? QUICK_GROUPS : DEEP_GROUPS;
     const merged = new Map<string, KeywordRecord>();
@@ -347,7 +357,7 @@ export function KeywordsPage() {
                   {index ? <span className="faint">›</span> : null}
                   <Button
                     size="sm" variant={step === seed ? "default" : "ghost"}
-                    onClick={() => void expand(step)}
+                    onClick={() => void expand(step, "back")}
                   >
                     {step}
                   </Button>
@@ -449,7 +459,7 @@ export function KeywordsPage() {
                             <Button
                               size="sm" variant="ghost" icon={<Icon.Tag size={14} />}
                               title="Usar esta frase como nueva semilla y seguir bajando"
-                              onClick={() => void expand(record.keyword, true)}
+                              onClick={() => void expand(record.keyword, "drill")}
                             >
                               Explorar
                             </Button>
