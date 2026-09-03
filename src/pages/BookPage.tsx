@@ -4,8 +4,9 @@ import { api, type ProductDetailDto } from "../api";
 import { LineChart } from "../components/charts";
 import { Icon } from "../components/icons";
 import { Layout } from "../components/Layout";
-import { Alert, Badge, Button, Card, CardHead, Empty, Kpi, Skeleton } from "../components/ui";
+import { Alert, Badge, Button, Card, CardHead, Empty, Field, Kpi, Skeleton } from "../components/ui";
 import { fmtCompact, fmtDate, fmtInt, fmtMoney, fmtNum, relativeTime } from "../lib/format";
+import { useMemo } from "react";
 import { useRoute } from "../router";
 import { useApp } from "../state";
 
@@ -198,6 +199,8 @@ export function BookPage() {
               </Card>
             ) : null}
 
+            <RankCheck asin={detail.asin} title={detail.title ?? ""} marketplace={marketplace} />
+
             <Card>
               <CardHead
                 title="Histórico de BSR"
@@ -231,5 +234,146 @@ export function BookPage() {
         ) : null}
       </div>
     </Layout>
+  );
+}
+
+
+/**
+ * Whether the book actually turns up when someone searches for it.
+ *
+ * A title that does not sell has two causes that need opposite fixes: nobody
+ * is searching for the subject, or people search and the book never appears.
+ * Guessing between them is what makes a quiet listing stay quiet, so this
+ * measures it directly instead — the book is looked up in each search and the
+ * position it holds is reported, ads excluded, since a paid slot is bought
+ * rather than earned.
+ */
+function RankCheck({ asin, title, marketplace }: { asin: string; title: string; marketplace: MarketplaceId }) {
+  const { toast } = useApp();
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Awaited<ReturnType<typeof api.rankCheck>> | null>(null);
+
+  // The title is where the publisher's own keyword bet is written down.
+  const suggestion = useMemo(() => {
+    const clean = title.split(/[:|–—]/)[0].trim().toLowerCase();
+    return clean.split(/\s+/).slice(0, 6).join(" ");
+  }, [title]);
+
+  async function run() {
+    const keywords = input.split("\n").map((k) => k.trim()).filter(Boolean).slice(0, 6);
+    if (!keywords.length) return;
+    setBusy(true);
+    try {
+      setResults(await api.rankCheck({ asin, keywords, marketplace, department: "print", pages: 2 }));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "No se pudo comprobar", "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rows = results?.results ?? [];
+  const found = rows.filter((r) => r.found);
+  const missing = rows.filter((r) => !r.found && !r.error);
+  // A refused request is not an absence. Counting it as one would turn a
+  // temporary block into "your book is invisible", which is the opposite of
+  // what this panel exists to establish.
+  const errored = rows.filter((r) => r.error);
+
+  return (
+    <Card>
+      <CardHead
+        title="¿Aparece en las búsquedas?"
+        note="Comprueba en qué puesto sale el libro, sin contar anuncios."
+      >
+        {suggestion ? (
+          <Button size="sm" variant="ghost" onClick={() => setInput((v) => (v ? v : suggestion))}>
+            Usar el título
+          </Button>
+        ) : null}
+      </CardHead>
+
+      <div className="card-pad stack">
+        <Field
+          label="Búsquedas a comprobar (una por línea, hasta 6)"
+          help="Escribe lo que teclearía tu lector, no cómo se titula el libro."
+        >
+          <textarea
+            className="input" rows={4} value={input}
+            placeholder={"escucha activa\ncomo escuchar mejor\nhabilidades de comunicacion"}
+            onChange={(event) => setInput(event.target.value)}
+          />
+        </Field>
+
+        <div className="row">
+          <Button variant="primary" loading={busy} icon={<Icon.Search size={15} />} onClick={run}>
+            Comprobar posición
+          </Button>
+          <span className="small faint">Se revisan los ~96 primeros resultados orgánicos de cada búsqueda.</span>
+        </div>
+
+        {results ? (
+          <>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr><th>Búsqueda</th><th className="num">Puesto</th><th className="num">Resultados</th><th>Lectura</th></tr>
+                </thead>
+                <tbody>
+                  {results.results.map((row) => (
+                    <tr key={row.keyword}>
+                      <td>{row.keyword}</td>
+                      <td className="num">
+                        {row.error ? <Badge tone="warn">{row.error}</Badge>
+                          : row.found ? <Badge tone={row.position !== null && row.position <= 16 ? "good" : "warn"}>#{row.position}</Badge>
+                          : <Badge tone="bad">no aparece</Badge>}
+                      </td>
+                      <td className="num faint">{fmtCompact(row.totalResults)}</td>
+                      <td className="small muted">
+                        {row.error ? "Amazon rechazó la petición; reinténtalo en unos minutos."
+                          : row.found && row.position !== null && row.position <= 16
+                            ? "Sale en la primera pantalla: aquí sí compites."
+                          : row.found ? "Está indexado pero demasiado abajo para recibir clics."
+                          : `No aparece en los ${row.scanned} primeros. O no estás indexado para este término, o estás muy por detrás.`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <Alert tone={errored.length === rows.length ? "warn" : found.length ? "info" : "warn"}>
+              {errored.length === rows.length ? (
+                <>
+                  <strong>No se pudo comprobar ninguna búsqueda.</strong> Amazon rechazó las
+                  peticiones, así que esto no dice nada sobre tu libro. Reinténtalo en unos minutos.
+                </>
+              ) : found.length === 0 ? (
+                <>
+                  <strong>No apareces en ninguna de estas búsquedas.</strong> Antes de tocar el
+                  producto, revisa la indexación: título, subtítulo y las 7 casillas de palabras clave
+                  de KDP. Si el término no está en ninguno de esos sitios, Amazon no tiene motivo para
+                  mostrarte.
+                </>
+              ) : missing.length ? (
+                <>
+                  Apareces en {found.length} de {results.results.length}. Las {missing.length} en las
+                  que no sales son las candidatas a entrar en tus casillas de palabras clave.
+                </>
+              ) : (
+                <>Estás indexado en todas. Si aun así no vende, el problema está en la conversión —
+                portada, precio o descripción— no en la visibilidad.</>
+              )}
+              {errored.length && errored.length < rows.length ? (
+                <div className="small faint" style={{ marginTop: 6 }}>
+                  {errored.length} búsqueda(s) no se pudieron comprobar y quedan fuera de esta cuenta.
+                </div>
+              ) : null}
+            </Alert>
+          </>
+        ) : null}
+      </div>
+    </Card>
   );
 }

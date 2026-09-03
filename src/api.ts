@@ -142,6 +142,17 @@ export const api = {
   scoreKeywords: (body: { keywords: string[]; marketplace: MarketplaceId; department: "print" | "kindle" | "all" }) =>
     post<{ scored: KeywordScoreDto[] }>("/api/keywords/score", body),
 
+  rankCheck: (body: {
+    asin: string; keywords: string[]; marketplace: MarketplaceId;
+    department: "print" | "kindle" | "all"; pages?: number;
+  }) => post<{
+    asin: string; marketplace: MarketplaceId; depth: number;
+    results: Array<{
+      keyword: string; found: boolean; position: number | null; page: number | null;
+      scanned: number; totalResults: number | null; error?: string;
+    }>;
+  }>("/api/scan/rank", body),
+
   book: (asin: string, marketplace: MarketplaceId, refresh = false) =>
     request<{
       detail: ProductDetailDto;

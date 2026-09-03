@@ -327,6 +327,75 @@ function avgOf(values: Array<number | null>): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// Indexation check
+//
+// A published book that does not sell has two very different causes: nobody
+// searches for what it is about, or people search and it never shows up. The
+// fixes are opposite — change the book, or change the metadata — so guessing
+// between them is expensive. This looks the book up in each search and reports
+// where it actually lands.
+// ---------------------------------------------------------------------------
+
+app.post("/api/scan/rank", async (c) => {
+  const body = await readJson<{
+    asin?: string; keywords?: string[]; marketplace?: string;
+    department?: "print" | "kindle" | "all"; pages?: number;
+  }>(c);
+
+  const asin = (body.asin ?? "").toUpperCase();
+  if (!/^[A-Z0-9]{10}$/.test(asin)) return c.json({ error: "ASIN inválido" }, 400);
+
+  const keywords = (body.keywords ?? []).map((k) => k.trim()).filter(Boolean).slice(0, 6);
+  if (!keywords.length) return c.json({ error: "Indica al menos una búsqueda" }, 400);
+
+  const settings = await withSettings(c);
+  const marketplace = getMarketplace(body.marketplace ?? settings.marketplace);
+  const department = body.department ?? "print";
+  const depth = Math.max(1, Math.min(3, body.pages ?? 2));
+
+  const results = await mapWithConcurrency(keywords, Math.min(3, settings.concurrency), settings.requestDelayMs, async (keyword) => {
+    let scanned = 0;
+    let totalResults: number | null = null;
+
+    for (let page = 1; page <= depth; page++) {
+      const url = searchUrl(marketplace, keyword, page, department);
+      const cacheKey = `rank:${marketplace.id}:${department}:${keyword.toLowerCase()}:${page}`;
+      let parsed = await cacheGet<{ asins: string[]; total: number | null; count: number }>(c.env, cacheKey);
+
+      if (!parsed) {
+        const outcome = await fetchPage(c.env, settings, url, { language: marketplace.language, attempts: 2 });
+        if (!outcome.ok) {
+          return { keyword, found: false, position: null, page: null, scanned, totalResults, error: outcome.blocked ? "bloqueado" : "fallo" };
+        }
+        const search = parseSearchPage(outcome.body, marketplace, 0, 60);
+        // Only the organic ranking matters: an ad placement is bought, not earned.
+        const organic = search.items.filter((item) => !item.sponsored);
+        parsed = { asins: organic.map((item) => item.asin), total: search.totalResults, count: organic.length };
+        await cacheSet(c.env, cacheKey, parsed, settings.cacheTtlHours);
+      }
+
+      if (page === 1) totalResults = parsed.total;
+      const index = parsed.asins.indexOf(asin);
+      if (index >= 0) {
+        return { keyword, found: true, position: scanned + index + 1, page, scanned: scanned + parsed.count, totalResults };
+      }
+      scanned += parsed.count;
+      if (parsed.count === 0) break;
+    }
+
+    return { keyword, found: false, position: null, page: null, scanned, totalResults };
+  });
+
+  await logFetch(c.env, {
+    kind: "search", target: `rank:${asin}`, provider: settings.provider, status: 200,
+    ok: true, blocked: false, ms: 0, parsed: results.filter((r) => r.found).length,
+    detail: `${keywords.length} búsquedas comprobadas`,
+  });
+
+  return c.json({ asin, marketplace: marketplace.id, depth, results });
+});
+
+// ---------------------------------------------------------------------------
 // Categories
 //
 // The bestseller page supplies only the ranked list of ASINs; every figure
