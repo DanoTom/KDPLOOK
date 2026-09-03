@@ -52,11 +52,13 @@ export function searchUrl(
   else if (department === "kindle") params.set("i", m.kindleAlias);
   if (page > 1) params.set("page", String(page));
   params.set("ref", "sr_pg_" + page);
+  // Without this Amazon may serve a storefront in English to datacenter IPs.
+  params.set("language", m.language);
   return `https://${m.host}/s?${params.toString()}`;
 }
 
 export function productUrl(m: Marketplace, asin: string): string {
-  return `https://${m.host}/dp/${asin}?language=${m.language.split("_")[0]}`;
+  return `https://${m.host}/dp/${asin}?language=${m.language}`;
 }
 
 /** Public endpoint that powers the search box's dropdown. */

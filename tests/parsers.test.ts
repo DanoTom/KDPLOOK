@@ -195,12 +195,22 @@ console.log("\nlista de mas vendidos por categoria");
 console.log("\nurls de mas vendidos");
 {
   const us = getMarketplace("com");
-  check("raiz de papel", bestsellerUrl(us, "", "print"), "https://www.amazon.com/gp/bestsellers/books/");
-  check("nodo concreto", bestsellerUrl(us, "3204", "print"), "https://www.amazon.com/gp/bestsellers/books/3204/");
-  check("segunda pagina", bestsellerUrl(us, "3204", "print", 2), "https://www.amazon.com/gp/bestsellers/books/3204/?pg=2");
-  check("tienda kindle", bestsellerUrl(us, "", "kindle"), "https://www.amazon.com/gp/bestsellers/digital-text/");
-  check("amazon espana", bestsellerUrl(getMarketplace("es"), "902686031", "print"),
-    "https://www.amazon.es/gp/bestsellers/books/902686031/");
+  check("raiz de papel", bestsellerUrl(us, "", "print"), "https://www.amazon.com/gp/bestsellers/books/?language=en_US");
+  check("nodo concreto", bestsellerUrl(us, "3204", "print"), "https://www.amazon.com/gp/bestsellers/books/3204/?language=en_US");
+  check("segunda pagina", bestsellerUrl(us, "3204", "print", 2), "https://www.amazon.com/gp/bestsellers/books/3204/?language=en_US&pg=2");
+  check("tienda kindle", bestsellerUrl(us, "", "kindle"), "https://www.amazon.com/gp/bestsellers/digital-text/?language=en_US");
+  // Amazon served amazon.es in English to the Worker until the locale was pinned.
+  check("amazon espana pide la tienda en espanol", bestsellerUrl(getMarketplace("es"), "902686031", "print"),
+    "https://www.amazon.es/gp/bestsellers/books/902686031/?language=es_ES");
+}
+
+console.log("\nnombres de categoria");
+{
+  const listing = parseBestsellerPage(
+    '<html><head><title>Amazon.es Best Sellers: The most popular items in Books</title></head>' +
+    '<body><div id="gridItemRoot"><a href="/x/dp/B0AAA11111/ref=z"></a></div></body></html>',
+  );
+  check("se recorta el prefijo de amazon", listing.name, "Books");
 }
 
 console.log("\ndeteccion de bloqueo");

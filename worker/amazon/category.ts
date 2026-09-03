@@ -19,7 +19,9 @@ export interface CategoryListing {
 export function bestsellerUrl(m: Marketplace, node: string, department: "print" | "kindle", page = 1): string {
   const dept = department === "kindle" ? "digital-text" : "books";
   const path = node ? `/gp/bestsellers/${dept}/${encodeURIComponent(node)}/` : `/gp/bestsellers/${dept}/`;
-  return `https://${m.host}${path}${page > 1 ? `?pg=${page}` : ""}`;
+  const params = new URLSearchParams({ language: m.language });
+  if (page > 1) params.set("pg", String(page));
+  return `https://${m.host}${path}?${params.toString()}`;
 }
 
 /**
@@ -78,6 +80,8 @@ function extractCategoryName(html: string): string | null {
     .replace(/^Best Sellers[^:]*:\s*/i, "")
     .replace(/^Los más vendidos[^:]*:\s*/i, "")
     .replace(/^Best\s+/i, "")
+    .replace(/^The most popular items in\s+/i, "")
+    .replace(/^Los (?:productos|artículos) más (?:populares|vendidos) en\s+/i, "")
     .replace(/^Los más vendidos en\s+/i, "")
     .trim();
   return cleaned.slice(0, 90) || null;
