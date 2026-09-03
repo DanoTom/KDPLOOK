@@ -230,22 +230,33 @@ export async function fetchSuggestions(
     return readSuggestions(outcome.body);
   };
 
+  // Which alias to ask with first.
+  //
+  // On Amazon.es the books alias answers in English — "agenda 3 hole",
+  // "august 2026-july2027 school agenda" — while the unnarrowed alias answers
+  // in Spanish for the same seed. `mid` and `lop` evidently localise the
+  // generic index but not the department one, which then falls back to the US
+  // set. A suggestion in the wrong language is worth less than an unnarrowed
+  // one in the right language: nobody on Amazon.es types those queries, so the
+  // department narrowing is dropped where it costs the localisation.
+  const localised = marketplace.language.split("_")[0] !== "en";
+  const first: "print" | "kindle" | "all" = localised ? "all" : department;
+
   // The shared host first; only if it yields nothing, the storefront's own.
   // One host being wrong should degrade the result, never empty it.
-  const shared = await ask(suggestUrl(marketplace, prefix, department, "shared"), 2);
+  const shared = await ask(suggestUrl(marketplace, prefix, first, "shared"), 2);
   if (shared?.length) return { reached: true, values: shared };
 
-  const regional = await ask(suggestUrl(marketplace, prefix, department, "regional"), 1);
+  const regional = await ask(suggestUrl(marketplace, prefix, first, "regional"), 1);
   if (regional?.length) return { reached: true, values: regional };
 
-  // Narrowing to a department can cost the localisation: a books alias the
-  // service does not recognise for this storefront falls back to the generic
-  // English set, or to nothing. Asking without it is the same question without
-  // that risk — but only when Amazon answered and had nothing, since a refusal
-  // has already spent the budget above.
-  if (reached && department !== "all") {
-    const unaliased = await ask(suggestUrl(marketplace, prefix, "all", "shared"), 1);
-    if (unaliased?.length) return { reached: true, values: unaliased };
+  // Nothing under the preferred alias: try the other one rather than report
+  // silence. Only when Amazon answered and had nothing — a refusal has already
+  // spent the budget above.
+  const second: "print" | "kindle" | "all" = first === department ? "all" : department;
+  if (reached && second !== first) {
+    const other = await ask(suggestUrl(marketplace, prefix, second, "shared"), 1);
+    if (other?.length) return { reached: true, values: other };
   }
 
   // `reached` is the difference between "Amazon is turning us away" and "Amazon

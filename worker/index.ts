@@ -188,6 +188,7 @@ app.post("/api/scan/search", async (c) => {
     elapsedMs: outcome.ms,
     fromCache: false,
     noResults: parsed.noResults,
+    pageHint: parsed.pageHint,
     warning: parsed.items.length === 0
       ? (parsed.noResults
           // Amazon's own answer, not a parsing failure. Sending the operator to
@@ -210,6 +211,8 @@ interface SearchResponse {
   elapsedMs: number;
   /** Amazon returned its own "nothing here" page rather than a broken one. */
   noResults?: boolean;
+  /** What the page said where the results should have been, when nothing parsed. */
+  pageHint?: string | null;
   fromCache: boolean;
   warning?: string;
 }

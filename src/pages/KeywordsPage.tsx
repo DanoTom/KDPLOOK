@@ -164,13 +164,15 @@ export function KeywordsPage() {
         setError(rescue.failed);
       } else if (merged.size) {
         setNote(
-          `Amazon no completa «${trimmed}»: nadie la escribe así. Estas ${merged.size} salen de rutas cercanas ` +
-          `—la frase al revés, en plural y con «${connectorHint(marketplace)}»—, que es como sí la teclean.`,
+          `El autocompletado no tiene nada guardado para «${trimmed}». Solo recoge las consultas que se ` +
+          `repiten mucho, así que eso apunta a poco volumen —no a que nadie la escriba—. Estas ${merged.size} ` +
+          `salen de rutas cercanas: la frase al revés, en plural y con «${connectorHint(marketplace)}».`,
         );
       } else if (rescue.reachable > 0) {
         setError(
-          `Amazon respondió pero no sugiere nada, ni para «${trimmed}» ni para sus variantes cercanas. ` +
-          `No es un bloqueo: es que esa frase no se busca. Prueba una semilla más corta y baja desde ahí.`,
+          `Amazon respondió, pero no tiene sugerencias guardadas ni para «${trimmed}» ni para sus rutas ` +
+          `cercanas. No es un bloqueo: el autocompletado solo guarda consultas frecuentes, y ninguna de estas ` +
+          `formas lo es. Prueba una semilla más corta y baja desde ahí.`,
         );
       } else {
         setError("Amazon no respondió a ninguna sonda. Puede estar limitando el autocompletado desde este servidor; espera unos minutos.");
@@ -181,8 +183,9 @@ export function KeywordsPage() {
     setProgress(null);
     if (!merged.size && first.reachable > 0) {
       setError(
-        `Amazon respondió pero no sugiere nada para «${trimmed}» ni para sus rutas cercanas. ` +
-        `No es un bloqueo: es que esa frase no se busca. Prueba una semilla más corta y baja desde ahí.`,
+        `Amazon respondió, pero no tiene sugerencias guardadas para «${trimmed}» ni para sus rutas cercanas. ` +
+        `No es un bloqueo: el autocompletado solo guarda consultas frecuentes, y ninguna de estas formas lo es. ` +
+        `Prueba una semilla más corta y baja desde ahí.`,
       );
       return;
     }
@@ -551,7 +554,9 @@ export function KeywordsPage() {
             <div className="small muted" style={{ lineHeight: 1.65 }}>
               <strong>Demanda</strong> no es volumen de búsqueda real —nadie fuera de Amazon lo tiene—, sino cuántas
               sondas distintas del autocompletado devuelven esa frase y en qué posición. Una frase que aparece bajo
-              muchas letras y siempre arriba es una consulta que Amazon considera fuerte.{" "}
+              muchas letras y siempre arriba es una consulta que Amazon considera fuerte. Al revés no vale igual:
+              que el autocompletado no guarde una frase indica poco volumen, no que nadie la teclee —tú mismo
+              escribes consultas que no aparecerán ahí nunca—.{" "}
               <strong>Resultados</strong> y <strong>Reseñas medianas</strong> sí son datos duros del buscador: son
               tu medida de saturación. <strong>Oportunidad</strong> junta las dos mitades en un número y aparece
               en cuanto puntúas: demanda alta con pocos competidores y pocas reseñas es lo que se busca, y ordena

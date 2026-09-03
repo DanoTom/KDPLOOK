@@ -74,6 +74,7 @@ export function useNicheScan(settings: AppSettings) {
     let provider = "direct";
     let fromCache = true;
     let emptyDepartment = false;
+    let pageHint: string | null = null;
     const started = Date.now();
 
     setProgress({ phase: "search", label: "Leyendo resultados de búsqueda…", done: 0, total: pages });
@@ -95,6 +96,7 @@ export function useNicheScan(settings: AppSettings) {
           resultsCountText = response.resultsCountText;
         }
         if (page === 1 && response.noResults) emptyDepartment = true;
+        if (page === 1 && response.pageHint) pageHint = response.pageHint;
         if (response.warning) warnings.push(`Página ${page}: ${response.warning}`);
         for (const item of response.items) {
           // Later pages repeat sponsored placements; keep the first sighting.
@@ -135,7 +137,12 @@ export function useNicheScan(settings: AppSettings) {
           }
         : {
             message: "Amazon respondió, pero no se reconoció ningún libro.",
-            hint: "Prueba otra palabra clave o revisa la pestaña Diagnóstico para comprobar los selectores.",
+            // The page's own opening line, so a report of this can be acted on
+            // instead of guessed at: Amazon is not reachable from where this
+            // code is developed, and the parser cannot be fixed blind.
+            hint: pageHint
+              ? `La página empezaba así: «${pageHint}». Cópiala tal cual si nos hace falta arreglar el lector.`
+              : "Prueba otra palabra clave o revisa la pestaña Diagnóstico para comprobar los selectores.",
             blocked: false,
           });
       return;

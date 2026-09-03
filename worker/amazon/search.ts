@@ -8,6 +8,12 @@ export interface SearchPageResult {
   rawItemCount: number;
   /** Amazon itself said there is nothing here, in its own words. */
   noResults: boolean;
+  /**
+   * The first words Amazon prints in the results area, kept only when nothing
+   * parsed. Amazon is unreachable from CI, so when this file fails to read a
+   * page the page itself has to come back and say what it was.
+   */
+  pageHint: string | null;
 }
 
 /** Words Amazon uses for the binding, across the storefronts we support. */
@@ -238,12 +244,30 @@ function extractResultsCount(html: string): { total: number | null; text: string
 const NO_RESULTS_RE = new RegExp(
   [
     "No results for", "No results found", "did not match any products",
+    "Try checking your spelling",
     "No hay resultados para", "No se han encontrado resultados", "no ha obtenido resultados",
+    "no coincide con ning[u\u00fa]n producto", "Prueba a comprobar la ortograf[i\u00ed]a",
+    "no produjo ning[u\u00fa]n resultado", "No encontramos resultados",
     "Keine Ergebnisse f\u00fcr", "Aucun r\u00e9sultat pour", "Nessun risultato per",
     "Geen resultaten voor", "Nenhum resultado para", "Brak wynik\u00f3w", "Inga resultat",
   ].join("|"),
   "i",
 );
+
+/**
+ * The opening text of the results area, for the case where nothing parsed.
+ *
+ * Both failures look the same from outside — Amazon showing an empty shelf, and
+ * this file failing to read a full one — and the page's own first line tells
+ * them apart. Kept short: it travels to the browser and gets shown to the
+ * operator, who can paste it back.
+ */
+function extractPageHint(html: string): string | null {
+  const text = stripTags(trimToResultList(html).slice(0, 6000))
+    .replace(/\s+/g, " ")
+    .trim();
+  return text ? text.slice(0, 220) : null;
+}
 
 export function parseSearchPage(
   html: string,
@@ -304,7 +328,8 @@ export function parseSearchPage(
     resultsCountText: text,
     rawItemCount: blocks.length,
     // Only worth asking when nothing came back; a page full of books is an
-    // answer already, and the regex costs a pass over the markup.
+    // answer already, and both of these cost a pass over the markup.
     noResults: blocks.length === 0 && NO_RESULTS_RE.test(html),
+    pageHint: blocks.length === 0 ? extractPageHint(html) : null,
   };
 }

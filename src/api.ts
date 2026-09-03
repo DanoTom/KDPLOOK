@@ -60,6 +60,8 @@ export interface SearchPageResponse {
   fromCache: boolean;
   /** Amazon's own "no results" page, as opposed to markup we failed to read. */
   noResults?: boolean;
+  /** The opening text of the results area, when nothing could be parsed. */
+  pageHint?: string | null;
   warning?: string;
 }
 

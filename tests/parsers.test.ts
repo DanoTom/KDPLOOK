@@ -773,6 +773,39 @@ console.log("\nrutas cercanas a una frase");
   truthy("el plural sobrevive al recorte", long.includes("libro actividades ninos pequeno especiales"));
 }
 
+console.log("\npagina de busqueda sin resultados");
+{
+  const es = getMarketplace("es");
+
+  const empty = parseSearchPage(
+    `<html><body><div class="s-main-slot"><span class="a-size-medium">No hay resultados para ` +
+    `<span class="a-text-bold">agenda psicologo</span>.</span><span>Prueba a comprobar la ortografía` +
+    `</span></div></body></html>`,
+    es,
+  );
+  check("reconoce que amazon dice que no hay nada", empty.noResults, true);
+  check("y no inventa libros", empty.items.length, 0);
+  truthy("devuelve el texto de la pagina para poder diagnosticar",
+    (empty.pageHint ?? "").includes("No hay resultados para"));
+
+  // The other half of the same symptom: a page that clearly holds results but
+  // whose markup this parser cannot split. That is a bug here, not an answer
+  // from Amazon, and the two must not report the same thing.
+  const unreadable = parseSearchPage(
+    `<html><body><div class="s-main-slot"><h2>Resultados</h2>` +
+    `<article data-nuevo-formato="B01234567X">Un libro</article></div></body></html>`,
+    es,
+  );
+  check("un formato que no sabemos leer no es «no hay resultados»", unreadable.noResults, false);
+  truthy("pero tambien cuenta que habia en la pagina", (unreadable.pageHint ?? "").includes("Resultados"));
+
+  // Nothing to explain when the page read fine.
+  const fine = parseSearchPage(fixture("search-es.html"), es);
+  truthy("una pagina legible si trae libros", fine.items.length > 0);
+  check("y no arrastra texto de diagnostico", fine.pageHint, null);
+  check("ni se marca como vacia", fine.noResults, false);
+}
+
 console.log("\npresupuesto de subpeticiones");
 {
   // The free plan allows 50 subrequests per invocation and each probe can cost
