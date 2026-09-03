@@ -6,12 +6,27 @@ import { Layout } from "../components/Layout";
 import { Alert, Badge, Button, Card, CardHead, Empty, Field, Meter, Progress, SegmentedControl } from "../components/ui";
 import { downloadCsv, toCsv } from "../lib/csv";
 import { fmtCompact, fmtInt, fmtPct, relativeTime, slug } from "../lib/format";
+import { keywordOpportunity, type KeywordOpportunity } from "../../shared/analytics/keyword";
 import { DEEP_GROUPS, GROUP_LABELS, QUICK_GROUPS, type ProbeGroup } from "../lib/groups";
 import type { Department } from "../lib/scan";
 import { Link, useRoute } from "../router";
 import { useApp } from "../state";
 
 type ScoreMap = Record<string, KeywordScoreDto>;
+
+function sortByDemand(merged: Map<string, KeywordRecord>): KeywordRecord[] {
+  return Array.from(merged.values()).sort((a, b) => b.demandProxy - a.demandProxy);
+}
+
+/** The joining word this storefront's shoppers actually type, for the message. */
+function connectorHint(marketplace: string): string {
+  if (marketplace === "es" || marketplace === "com.mx") return "para";
+  if (marketplace === "de") return "für";
+  if (marketplace === "fr") return "pour";
+  if (marketplace === "it") return "per";
+  if (marketplace === "com.br") return "para";
+  return "for";
+}
 
 export function KeywordsPage() {
   const { settings, marketplaces, updateSettings, toast } = useApp();
@@ -26,6 +41,10 @@ export function KeywordsPage() {
   const [progress, setProgress] = useState<{ label: string; done: number; total: number } | null>(null);
   const [scoring, setScoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  // Where the exploration has been, so a dead end is one click from the last
+  // place that had something in it.
+  const [trail, setTrail] = useState<string[]>([]);
   const [runs, setRuns] = useState<Array<{ id: string; seed: string; createdAt: number; count: number }>>([]);
   const [filter, setFilter] = useState("");
   const [minWords, setMinWords] = useState(0);
@@ -38,26 +57,33 @@ export function KeywordsPage() {
     try { setRuns(await api.listKeywordRuns()); } catch { /* the list is optional */ }
   }
 
-  async function expand() {
-    const trimmed = seed.trim();
-    if (!trimmed) return;
-    setError(null);
-    setKeywords([]);
-    setScores({});
-    setSelected(new Set());
-
-    const groups: ProbeGroup[] = mode === "quick" ? QUICK_GROUPS : DEEP_GROUPS;
-    const merged = new Map<string, KeywordRecord>();
-    let answered = 0;
+  /**
+   * Walk a list of probe groups, folding every answer into `merged`.
+   *
+   * Returns the tallies rather than rendering them: `reachable` (Amazon
+   * answered) and `answered` (Amazon had something to say) mean different
+   * things, and conflating them is what turned a real finding — "nobody
+   * completes this phrase" — into a false alarm about being rate-limited.
+   */
+  async function runGroups(
+    seedText: string,
+    groups: ProbeGroup[],
+    merged: Map<string, KeywordRecord>,
+    offset = 0,
+    total = groups.length,
+  ): Promise<{ probes: number; answered: number; reachable: number; failed: string | null }> {
     let probes = 0;
+    let answered = 0;
+    let reachable = 0;
 
     for (let index = 0; index < groups.length; index++) {
       const group = groups[index];
-      setProgress({ label: `Sondeando: ${GROUP_LABELS[group]}`, done: index, total: groups.length });
+      setProgress({ label: `Sondeando: ${GROUP_LABELS[group]}`, done: offset + index, total });
       try {
-        const response = await api.expand({ seed: trimmed, marketplace, group, department });
-        answered += response.answered;
+        const response = await api.expand({ seed: seedText, marketplace, group, department });
         probes += response.probes;
+        answered += response.answered;
+        reachable += response.reachable ?? 0;
         for (const record of response.keywords) {
           const existing = merged.get(record.keyword);
           if (!existing) { merged.set(record.keyword, { ...record }); continue; }
@@ -65,16 +91,67 @@ export function KeywordsPage() {
           existing.bestRank = Math.min(existing.bestRank, record.bestRank);
           existing.demandProxy = Math.max(existing.demandProxy, record.demandProxy);
         }
-        setKeywords(Array.from(merged.values()).sort((a, b) => b.demandProxy - a.demandProxy));
+        setKeywords(sortByDemand(merged));
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error al expandir");
-        break;
+        return { probes, answered, reachable, failed: err instanceof Error ? err.message : "Error al expandir" };
       }
+    }
+    return { probes, answered, reachable, failed: null };
+  }
+
+  /**
+   * @param nextSeed the phrase to expand; defaults to whatever is in the box.
+   * @param drill    true when this came from clicking a result, so the trail grows
+   *                 instead of restarting.
+   */
+  async function expand(nextSeed?: string, drill = false) {
+    const trimmed = (nextSeed ?? seed).trim();
+    if (!trimmed) return;
+    setSeed(trimmed);
+    setError(null);
+    setNote(null);
+    setKeywords([]);
+    setScores({});
+    setSelected(new Set());
+    setTrail((current) => (drill ? [...current.filter((step) => step !== trimmed), trimmed] : [trimmed]));
+
+    const groups: ProbeGroup[] = mode === "quick" ? QUICK_GROUPS : DEEP_GROUPS;
+    const merged = new Map<string, KeywordRecord>();
+    // One extra step in the bar for the fallback that may or may not run.
+    const first = await runGroups(trimmed, groups, merged, 0, groups.length + 1);
+
+    if (first.failed) {
+      setProgress(null);
+      setError(first.failed);
+      return;
+    }
+
+    // The phrase itself completes into nothing. That is usually not a failure
+    // but the answer: autocomplete matches a prefix, so it only knows about
+    // these exact words in this exact order. The neighbourhood is where the
+    // phrasing people actually type lives.
+    if (!merged.size && first.reachable > 0) {
+      const rescue = await runGroups(trimmed, ["related"], merged, groups.length, groups.length + 1);
+      setProgress(null);
+      if (merged.size) {
+        setNote(
+          `Amazon no completa «${trimmed}»: nadie la escribe así. Estas ${merged.size} salen de rutas cercanas ` +
+          `—la frase al revés, en plural y con «${connectorHint(marketplace)}»—, que es como sí la teclean.`,
+        );
+      } else if (rescue.reachable > 0) {
+        setError(
+          `Amazon respondió pero no sugiere nada, ni para «${trimmed}» ni para sus variantes cercanas. ` +
+          `No es un bloqueo: es que esa frase no se busca. Prueba una semilla más corta y baja desde ahí.`,
+        );
+      } else {
+        setError("Amazon no respondió a ninguna sonda. Puede estar limitando el autocompletado desde este servidor; espera unos minutos.");
+      }
+      return;
     }
 
     setProgress(null);
-    if (probes > 0 && answered === 0) {
-      setError("Ninguna sonda obtuvo respuesta. Amazon puede estar limitando el autocompletado desde este servidor.");
+    if (first.probes > 0 && first.reachable === 0) {
+      setError("Amazon no respondió a ninguna sonda. Puede estar limitando el autocompletado desde este servidor; espera unos minutos.");
     }
   }
 
@@ -120,19 +197,51 @@ export function KeywordsPage() {
       setKeywords(run.keywords);
       setScores({});
       setSelected(new Set());
+      setTrail([run.seed]);
+      setError(null);
+      setNote(null);
     } catch {
       toast("No se pudo abrir la lista", "bad");
     }
   }
 
+  const opportunities = useMemo(() => {
+    const map = new Map<string, KeywordOpportunity>();
+    for (const record of keywords) {
+      const score = scores[record.keyword];
+      if (!score) continue;
+      const verdict = keywordOpportunity({
+        demandProxy: record.demandProxy,
+        totalResults: score.totalResults ?? null,
+        medianReviews: score.medianReviews ?? null,
+        lowReviewShare: score.lowReviewShare ?? null,
+      });
+      if (verdict) map.set(record.keyword, verdict);
+    }
+    return map;
+  }, [keywords, scores]);
+
   const visible = useMemo(() => {
     const needle = filter.trim().toLowerCase();
-    return keywords.filter((record) => {
+    const rows = keywords.filter((record) => {
       if (needle && !record.keyword.includes(needle)) return false;
       if (minWords && record.depth < minWords) return false;
       return true;
     });
-  }, [keywords, filter, minWords]);
+    // Before anything is scored, demand is all there is to rank by. Once the
+    // competition has been measured, that is the better answer and it goes on
+    // top — the unscored keep their own order below rather than being mixed in
+    // on a number they do not have.
+    if (!opportunities.size) return rows;
+    return [...rows].sort((a, b) => {
+      const oa = opportunities.get(a.keyword);
+      const ob = opportunities.get(b.keyword);
+      if (oa && ob) return ob.score - oa.score;
+      if (oa) return -1;
+      if (ob) return 1;
+      return b.demandProxy - a.demandProxy;
+    });
+  }, [keywords, filter, minWords, opportunities]);
 
   function toggle(keyword: string) {
     setSelected((current) => {
@@ -163,6 +272,8 @@ export function KeywordsPage() {
           resenas_media: score?.avgReviews ?? "",
           rivales_flojos: score?.lowReviewShare ?? "",
           precio_medio: score?.avgPrice ?? "",
+          oportunidad: opportunities.get(record.keyword)?.score ?? "",
+          veredicto: opportunities.get(record.keyword)?.label ?? "",
         };
       })),
     );
@@ -184,6 +295,7 @@ export function KeywordsPage() {
       <div className="stack-lg">
         <Card pad>
           <form className="search-bar" onSubmit={(event) => { event.preventDefault(); void expand(); }}>
+
             <input
               className="input input-lg" placeholder="semilla: coloring book, sudoku, planner…"
               value={seed} onChange={(event) => setSeed(event.target.value)} autoFocus
@@ -208,8 +320,8 @@ export function KeywordsPage() {
           </form>
           <div className="small faint" style={{ marginTop: 10 }}>
             {mode === "quick"
-              ? "Rápido: la semilla más el barrido alfabético (≈54 sondas al autocompletado)."
-              : "Profundo: añade sufijos, prefijos, preguntas y dígitos (≈100 sondas). Tarda más y devuelve cola larga."}
+              ? "Rápido: la semilla más el barrido alfabético (≈54 sondas al autocompletado). Si la frase no completa, prueba sola las rutas cercanas."
+              : "Profundo: añade rutas cercanas, sufijos, prefijos, preguntas y dígitos (≈110 sondas). Tarda más y devuelve cola larga."}
           </div>
         </Card>
 
@@ -224,6 +336,26 @@ export function KeywordsPage() {
         ) : null}
 
         {error ? <Alert tone="warn">{error}</Alert> : null}
+        {note ? <Alert tone="info">{note}</Alert> : null}
+
+        {trail.length > 1 ? (
+          <Card pad>
+            <div className="row-tight small">
+              <span className="faint">Ruta:</span>
+              {trail.map((step, index) => (
+                <span key={step} className="row-tight">
+                  {index ? <span className="faint">›</span> : null}
+                  <Button
+                    size="sm" variant={step === seed ? "default" : "ghost"}
+                    onClick={() => void expand(step)}
+                  >
+                    {step}
+                  </Button>
+                </span>
+              ))}
+            </div>
+          </Card>
+        ) : null}
 
         {keywords.length ? (
           <Card>
@@ -259,12 +391,14 @@ export function KeywordsPage() {
                     <th className="num" title="Libros compitiendo por esta consulta">Resultados</th>
                     <th className="num" title="Mediana de reseñas del top orgánico">Reseñas med.</th>
                     <th className="num" title="Porcentaje del top con pocas reseñas">Flojos</th>
+                    <th title="Demanda y competencia en un solo número. Aparece al puntuar.">Oportunidad</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {visible.slice(0, 400).map((record) => {
                     const score = scores[record.keyword];
+                    const opportunity = opportunities.get(record.keyword);
                     return (
                       <tr key={record.keyword}>
                         <td>
@@ -303,12 +437,29 @@ export function KeywordsPage() {
                           ) : <span className="faint">—</span>}
                         </td>
                         <td>
-                          <Button
-                            size="sm" variant="ghost" icon={<Icon.Search size={14} />}
-                            onClick={() => navigate(`/nicho?keyword=${encodeURIComponent(record.keyword)}&dept=${department}`)}
-                          >
-                            Analizar
-                          </Button>
+                          {opportunity ? (
+                            <div className="row-tight" title={opportunity.reason}>
+                              <Badge tone={opportunity.tone}>{opportunity.label}</Badge>
+                              <span className="num faint">{opportunity.score}</span>
+                            </div>
+                          ) : <span className="faint">—</span>}
+                        </td>
+                        <td>
+                          <div className="row-tight" style={{ flexWrap: "nowrap" }}>
+                            <Button
+                              size="sm" variant="ghost" icon={<Icon.Tag size={14} />}
+                              title="Usar esta frase como nueva semilla y seguir bajando"
+                              onClick={() => void expand(record.keyword, true)}
+                            >
+                              Explorar
+                            </Button>
+                            <Button
+                              size="sm" variant="ghost" icon={<Icon.Search size={14} />}
+                              onClick={() => navigate(`/nicho?keyword=${encodeURIComponent(record.keyword)}&dept=${department}`)}
+                            >
+                              Analizar
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -364,8 +515,11 @@ export function KeywordsPage() {
               sondas distintas del autocompletado devuelven esa frase y en qué posición. Una frase que aparece bajo
               muchas letras y siempre arriba es una consulta que Amazon considera fuerte.{" "}
               <strong>Resultados</strong> y <strong>Reseñas medianas</strong> sí son datos duros del buscador: son
-              tu medida de saturación. La combinación que buscas es demanda alta con reseñas medianas bajas.
-              Para el veredicto completo de una frase, pulsa <Link to="/nicho">Analizar</Link>.
+              tu medida de saturación. <strong>Oportunidad</strong> junta las dos mitades en un número y aparece
+              en cuanto puntúas: demanda alta con pocos competidores y pocas reseñas es lo que se busca, y ordena
+              la lista por él. <strong>Explorar</strong> convierte una frase en la nueva semilla para seguir bajando
+              —la ruta queda arriba para volver—, y <Link to="/nicho">Analizar</Link> da el veredicto completo,
+              ya con ventas y regalías.
             </div>
           </Field>
         </Card>

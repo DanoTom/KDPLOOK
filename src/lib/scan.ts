@@ -5,6 +5,13 @@ import { ApiError, api, type ProductDetailDto } from "../api";
 
 export type Department = "print" | "kindle" | "all";
 
+/** The department names as the picker shows them, for use in messages. */
+export const DEPARTMENT_LABELS: Record<Department, string> = {
+  print: "Papel",
+  kindle: "Kindle",
+  all: "Todo",
+};
+
 export interface ScanParams {
   keyword: string;
   marketplace: MarketplaceId;
@@ -66,6 +73,7 @@ export function useNicheScan(settings: AppSettings) {
     let resultsCountText: string | null = null;
     let provider = "direct";
     let fromCache = true;
+    let emptyDepartment = false;
     const started = Date.now();
 
     setProgress({ phase: "search", label: "Leyendo resultados de búsqueda…", done: 0, total: pages });
@@ -86,6 +94,7 @@ export function useNicheScan(settings: AppSettings) {
           totalResults = response.totalResults;
           resultsCountText = response.resultsCountText;
         }
+        if (page === 1 && response.noResults) emptyDepartment = true;
         if (response.warning) warnings.push(`Página ${page}: ${response.warning}`);
         for (const item of response.items) {
           // Later pages repeat sponsored placements; keep the first sighting.
@@ -113,11 +122,22 @@ export function useNicheScan(settings: AppSettings) {
     const items = Array.from(collected.values());
     if (!items.length) {
       setProgress(EMPTY_PROGRESS);
-      setError({
-        message: "Amazon respondió, pero no se reconoció ningún libro.",
-        hint: "Prueba otra palabra clave o revisa la pestaña Diagnóstico para comprobar los selectores.",
-        blocked: false,
-      });
+      // Amazon saying "nothing here" and this code failing to read the page look
+      // identical from the outside and need opposite responses: the first is an
+      // answer about the department, the second is a bug worth reporting.
+      setError(emptyDepartment
+        ? {
+            message: `Amazon no tiene resultados para «${params.keyword}» en ${DEPARTMENT_LABELS[params.department]}.`,
+            hint: params.department === "print"
+              ? "No es un fallo de la app: ese departamento no devuelve nada para esta frase. Prueba «Todo», o una frase que la gente escriba de otra forma (plural, «para…», «de…»)."
+              : "Prueba con otro departamento o con una variante de la frase.",
+            blocked: false,
+          }
+        : {
+            message: "Amazon respondió, pero no se reconoció ningún libro.",
+            hint: "Prueba otra palabra clave o revisa la pestaña Diagnóstico para comprobar los selectores.",
+            blocked: false,
+          });
       return;
     }
 

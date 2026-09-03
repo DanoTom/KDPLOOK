@@ -1,10 +1,10 @@
 /** Mirrors the Worker's probe groups; kept here so the UI can sequence them. */
 export type ProbeGroup =
-  | "base" | "alphabetA" | "alphabetB" | "digits" | "questions" | "suffixes" | "prefixes";
+  | "base" | "alphabetA" | "alphabetB" | "digits" | "questions" | "suffixes" | "prefixes" | "related";
 
 export const QUICK_GROUPS: ProbeGroup[] = ["base", "alphabetA", "alphabetB"];
 export const DEEP_GROUPS: ProbeGroup[] = [
-  "base", "alphabetA", "alphabetB", "suffixes", "prefixes", "questions", "digits",
+  "base", "alphabetA", "alphabetB", "related", "suffixes", "prefixes", "questions", "digits",
 ];
 
 export const GROUP_LABELS: Record<ProbeGroup, string> = {
@@ -15,4 +15,5 @@ export const GROUP_LABELS: Record<ProbeGroup, string> = {
   questions: "Preguntas",
   suffixes: "Sufijos",
   prefixes: "Prefijos",
+  related: "Rutas cercanas",
 };

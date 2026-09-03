@@ -187,8 +187,13 @@ app.post("/api/scan/search", async (c) => {
     provider: outcome.provider,
     elapsedMs: outcome.ms,
     fromCache: false,
+    noResults: parsed.noResults,
     warning: parsed.items.length === 0
-      ? "La página se descargó pero no se reconoció ningún resultado. Puede que Amazon haya cambiado el marcado — mira Diagnóstico."
+      ? (parsed.noResults
+          // Amazon's own answer, not a parsing failure. Sending the operator to
+          // the Diagnostics tab for this would be sending them after a ghost.
+          ? "Amazon dice que no hay resultados para esta búsqueda en este departamento."
+          : "La página se descargó pero no se reconoció ningún resultado. Puede que Amazon haya cambiado el marcado — mira Diagnóstico.")
       : undefined,
   };
 
@@ -203,6 +208,8 @@ interface SearchResponse {
   page: number;
   provider: string;
   elapsedMs: number;
+  /** Amazon returned its own "nothing here" page rather than a broken one. */
+  noResults?: boolean;
   fromCache: boolean;
   warning?: string;
 }
@@ -268,8 +275,11 @@ app.post("/api/keywords/expand", async (c) => {
   const result = await expandKeywords(c.env, settings, marketplace, seed, group, body.department ?? "print");
   await logFetch(c.env, {
     kind: "suggest", target: `${group}:${seed}`, provider: settings.provider,
-    status: result.answered ? 200 : 0, ok: result.answered > 0, blocked: result.answered === 0 && result.probes > 0,
-    ms: 0, parsed: result.keywords.length, detail: `${result.answered}/${result.probes} sondas`,
+    status: result.reachable ? 200 : 0, ok: result.reachable > 0,
+    // Blocked means Amazon turned us away, not that it had nothing to suggest.
+    blocked: result.reachable === 0 && result.probes > 0,
+    ms: 0, parsed: result.keywords.length,
+    detail: `${result.answered}/${result.probes} con sugerencias · ${result.reachable} respondieron`,
   });
   return c.json(result);
 });

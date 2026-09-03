@@ -58,6 +58,8 @@ export interface SearchPageResponse {
   provider: string;
   elapsedMs: number;
   fromCache: boolean;
+  /** Amazon's own "no results" page, as opposed to markup we failed to read. */
+  noResults?: boolean;
   warning?: string;
 }
 
@@ -137,7 +139,7 @@ export const api = {
     post<{ details: ProductDetailDto[]; failed: string[]; blocked: boolean; fromCache: number }>("/api/scan/enrich", body),
 
   expand: (body: { seed: string; marketplace: MarketplaceId; group: ProbeGroup; department: "print" | "kindle" | "all" }) =>
-    post<{ keywords: KeywordRecord[]; probes: number; answered: number }>("/api/keywords/expand", body),
+    post<{ keywords: KeywordRecord[]; probes: number; answered: number; reachable: number }>("/api/keywords/expand", body),
 
   scoreKeywords: (body: { keywords: string[]; marketplace: MarketplaceId; department: "print" | "kindle" | "all" }) =>
     post<{ scored: KeywordScoreDto[] }>("/api/keywords/score", body),

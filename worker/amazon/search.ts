@@ -6,6 +6,8 @@ export interface SearchPageResult {
   totalResults: number | null;
   resultsCountText: string | null;
   rawItemCount: number;
+  /** Amazon itself said there is nothing here, in its own words. */
+  noResults: boolean;
 }
 
 /** Words Amazon uses for the binding, across the storefronts we support. */
@@ -226,6 +228,23 @@ function extractResultsCount(html: string): { total: number | null; text: string
   return { total, text: text.slice(0, 120) };
 }
 
+/**
+ * Amazon's own "nothing matched" banner, across the storefront languages we
+ * support. Worth telling apart from a parse failure: one is an answer about the
+ * market — usually a department that simply has no books for the phrase — and
+ * the other is a bug in this file. Reporting the first as the second sends the
+ * operator hunting for a problem that does not exist.
+ */
+const NO_RESULTS_RE = new RegExp(
+  [
+    "No results for", "No results found", "did not match any products",
+    "No hay resultados para", "No se han encontrado resultados", "no ha obtenido resultados",
+    "Keine Ergebnisse f\u00fcr", "Aucun r\u00e9sultat pour", "Nessun risultato per",
+    "Geen resultaten voor", "Nenhum resultado para", "Brak wynik\u00f3w", "Inga resultat",
+  ].join("|"),
+  "i",
+);
+
 export function parseSearchPage(
   html: string,
   marketplace: Marketplace,
@@ -279,5 +298,13 @@ export function parseSearchPage(
     });
   }
 
-  return { items, totalResults: total, resultsCountText: text, rawItemCount: blocks.length };
+  return {
+    items,
+    totalResults: total,
+    resultsCountText: text,
+    rawItemCount: blocks.length,
+    // Only worth asking when nothing came back; a page full of books is an
+    // answer already, and the regex costs a pass over the markup.
+    noResults: blocks.length === 0 && NO_RESULTS_RE.test(html),
+  };
 }

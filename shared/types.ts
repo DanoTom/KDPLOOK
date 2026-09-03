@@ -188,7 +188,7 @@ export interface KeywordRecord {
   /** 0-100 demand proxy derived from hits + rank + depth. */
   demandProxy: number;
   depth: number;
-  source: "seed" | "suffix" | "prefix" | "question" | "alphabet";
+  source: "seed" | "suffix" | "prefix" | "question" | "alphabet" | "related";
   /** Filled in only when the keyword is scored against live search results. */
   scored?: KeywordScore;
 }

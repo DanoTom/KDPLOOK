@@ -23,6 +23,8 @@ import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
 import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
+import { keywordOpportunity } from "../shared/analytics/keyword";
+import { buildProbes, relatedSeeds } from "../worker/amazon/suggest";
 import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -715,6 +717,52 @@ console.log("\nnicho inflado por lanzamientos");
     { keyword: "agenda 2027", marketplace: "es", settings, totalResults: 3_000, resultsCountText: null },
   );
   check("un nicho asentado no lo lleva", mature.signals.some((sig) => sig.id === "launches"), false);
+}
+
+console.log("\nrutas cercanas a una frase");
+{
+  const es = getMarketplace("es");
+  const near = relatedSeeds("agenda psicologo", es);
+
+  // The exact case that returned nothing: the phrase itself never completes,
+  // because shoppers type "agenda para psicologos".
+  truthy("prueba la frase con conector", near.includes("agenda para psicologo"));
+  truthy("y el conector solo, que es la sonda mas productiva", near.includes("agenda para"));
+  truthy("prueba el plural", near.includes("agenda psicologos"));
+  truthy("prueba cada palabra por separado", near.includes("agenda") && near.includes("psicologo"));
+  truthy("y el orden inverso", near.includes("psicologo agenda"));
+  check("nunca repite la semilla", near.includes("agenda psicologo"), false);
+  truthy("y cabe en el presupuesto de subpeticiones", near.length <= 12);
+
+  // A one-word seed has no neighbourhood of its own, so it widens instead.
+  const single = relatedSeeds("agenda", es);
+  truthy("una sola palabra se abre con sufijos", single.some((p) => p.startsWith("agenda ")));
+  truthy("y con su plural", single.includes("agendas"));
+
+  // Each storefront asks in its own language.
+  truthy("en ingles usa for", relatedSeeds("planner teacher", getMarketplace("com")).includes("planner for"));
+  truthy("en aleman usa fur", relatedSeeds("kalender lehrer", getMarketplace("de")).includes("kalender für"));
+
+  check("el grupo related usa esas mismas rutas", buildProbes("agenda psicologo", "related", es), near);
+  check("una semilla vacia no genera sondas", relatedSeeds("   ", es), []);
+}
+
+console.log("\noportunidad de una keyword");
+{
+  // Nothing measured about the competition yet: no verdict, rather than half of one.
+  check("sin puntuar no hay veredicto",
+    keywordOpportunity({ demandProxy: 80, totalResults: null, medianReviews: null, lowReviewShare: null }), null);
+
+  const green = keywordOpportunity({ demandProxy: 78, totalResults: 800, medianReviews: 12, lowReviewShare: 0.8 });
+  check("demanda alta con nicho vacio: entrar", green?.label, "Entrar");
+  truthy("y lo explica con las cifras", (green?.reason ?? "").includes("800"));
+
+  const crowded = keywordOpportunity({ demandProxy: 82, totalResults: 60_000, medianReviews: 1_400, lowReviewShare: 0.1 });
+  check("muy buscada pero saturada: dificil", crowded?.label, "Difícil");
+  truthy("la saturacion pesa mas que la demanda", (crowded?.score ?? 100) < (green?.score ?? 0));
+
+  const quiet = keywordOpportunity({ demandProxy: 10, totalResults: 300, medianReviews: 5, lowReviewShare: 0.9 });
+  truthy("un nicho vacio que nadie busca no es una oportunidad", (quiet?.score ?? 100) < (green?.score ?? 0));
 }
 
 console.log(`\n${passed} pruebas superadas, ${failed} fallidas\n`);
