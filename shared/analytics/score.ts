@@ -313,14 +313,42 @@ function buildVerdict(s: NicheSummary, settings: AppSettings): Verdict {
 
   const reasoning: string[] = [];
   const score = s.opportunityScore;
+  // Demand rests entirely on BSR. Without it there is nothing to say, and
+  // saying "low demand" would report a scraping failure as a market finding.
+  const hasDemandData = s.avgSalesPerMonth !== null || s.medianBsr !== null;
 
-  if (s.demandScore >= 65) reasoning.push(`Hay demanda real: los primeros puestos venden ~${Math.round(s.avgSalesPerMonth ?? 0)} unidades/mes estimadas.`);
-  else if (s.demandScore >= 40) reasoning.push("Demanda moderada: se vende, pero no esperes volumen alto desde el día uno.");
-  else reasoning.push("Demanda baja: los libros del top rotan poco, el techo de ingresos es pequeño.");
+  if (!hasDemandData) {
+    reasoning.push(
+      `No se pudo leer el BSR de ningún libro (${s.enriched} de ${s.analysed} fichas), así que la demanda no se ha medido: ` +
+      "esto es un bloqueo de Amazon, no una señal del nicho. Reintenta más tarde o baja el paralelismo en Ajustes.",
+    );
+  } else if (s.demandScore >= 65) {
+    reasoning.push(`Hay demanda real: los primeros puestos venden ~${Math.round(s.avgSalesPerMonth ?? 0)} unidades/mes estimadas.`);
+  } else if (s.demandScore >= 40) {
+    reasoning.push("Demanda moderada: se vende, pero no esperes volumen alto desde el día uno.");
+  } else {
+    reasoning.push("Demanda baja: los libros del top rotan poco, el techo de ingresos es pequeño.");
+  }
 
-  if (s.competitionScore <= 40) reasoning.push(`Competencia blanda: mediana de ${Math.round(s.medianReviews ?? 0)} reseñas en el top 20.`);
-  else if (s.competitionScore <= 65) reasoning.push(`Competencia media: mediana de ${Math.round(s.medianReviews ?? 0)} reseñas; necesitarás portada y descripción por encima de la media.`);
-  else reasoning.push(`Competencia dura: mediana de ${Math.round(s.medianReviews ?? 0)} reseñas, con títulos consolidados.`);
+  if (s.medianReviews === null) {
+    reasoning.push("Sin datos de reseñas suficientes para medir la competencia.");
+  } else if (s.competitionScore <= 40) {
+    reasoning.push(`Competencia blanda: mediana de ${Math.round(s.medianReviews)} reseñas en el top 20.`);
+  } else if (s.competitionScore <= 65) {
+    reasoning.push(`Competencia media: mediana de ${Math.round(s.medianReviews)} reseñas; necesitarás portada y descripción por encima de la media.`);
+  } else {
+    reasoning.push(`Competencia dura: mediana de ${Math.round(s.medianReviews)} reseñas, con títulos consolidados.`);
+  }
+
+  // A handful of readable listings cannot support a verdict either way.
+  if (!hasDemandData || s.enriched < 3) {
+    return {
+      label: "Sin datos",
+      tone: "unknown",
+      headline: "Escaneo incompleto: Amazon bloqueó casi todas las fichas, no hay base para un veredicto.",
+      reasoning,
+    };
+  }
 
   if (s.selfPublishedShare !== null && s.selfPublishedShare >= 0.5) {
     reasoning.push("La primera página está dominada por autopublicados, señal de que KDP puede posicionar aquí.");

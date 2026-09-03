@@ -83,7 +83,10 @@ export function suggestUrl(m: Marketplace, prefix: string, department: "print" |
     "plain-mid": "1",
     "client-info": "amazon-search-ui",
   });
-  return `https://completion.amazon.com/api/2017/suggestions?${params.toString()}`;
+  // Each storefront has its own completion host; the US one answers in English
+  // whatever locale you ask it for.
+  const host = m.host.replace(/^www\./, "completion.");
+  return `https://${host}/api/2017/suggestions?${params.toString()}`;
 }
 
 function randomSessionId(): string {

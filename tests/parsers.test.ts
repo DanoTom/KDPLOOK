@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { parseSearchPage } from "../worker/amazon/search";
 import { parseProductPage } from "../worker/amazon/product";
 import { bestsellerUrl, parseBestsellerPage } from "../worker/amazon/category";
-import { getMarketplace } from "../worker/amazon/marketplaces";
+import { getMarketplace, suggestUrl } from "../worker/amazon/marketplaces";
 import { looksBlocked } from "../worker/amazon/fetcher";
 import { parseDate, parseInteger, parsePrice } from "../worker/amazon/html";
 import { salesPerMonth } from "../shared/analytics/bsr";
@@ -211,6 +211,16 @@ console.log("\nnombres de categoria");
     '<body><div id="gridItemRoot"><a href="/x/dp/B0AAA11111/ref=z"></a></div></body></html>',
   );
   check("se recorta el prefijo de amazon", listing.name, "Books");
+}
+
+console.log("\nautocompletado por tienda");
+{
+  // The US completion host answers in English whatever locale it is asked for,
+  // which is why the keyword lab suggested English phrases on amazon.es.
+  truthy("espana usa su propio host", suggestUrl(getMarketplace("es"), "sudoku").startsWith("https://completion.amazon.es/"));
+  truthy("reino unido usa el suyo", suggestUrl(getMarketplace("co.uk"), "sudoku").startsWith("https://completion.amazon.co.uk/"));
+  truthy("estados unidos sigue igual", suggestUrl(getMarketplace("com"), "sudoku").startsWith("https://completion.amazon.com/"));
+  truthy("se pide el locale de la tienda", suggestUrl(getMarketplace("es"), "sudoku").includes("lop=es_ES"));
 }
 
 console.log("\ndeteccion de bloqueo");
