@@ -194,9 +194,9 @@ a:hover { text-decoration: underline; }
 
 /* The store picker needs a fixed width to fit "Estados Unidos", but must give
    that up rather than overflow once the search bar wraps onto its own line. */
-.select-market { width: 190px; }
+.select.select-market { width: 190px; flex: 0 0 auto; }
 @media (max-width: 720px) {
-  .select-market { width: 100%; }
+  .select.select-market { width: 100%; }
   .search-bar > .btn, .search-bar > .btn-group { width: 100%; }
   .search-bar .btn-group button { flex: 1; }
 }

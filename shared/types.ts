@@ -131,6 +131,53 @@ export interface ScanDiagnostics {
   warnings: string[];
 }
 
+export interface CategoryChild {
+  name: string;
+  node: string;
+}
+
+export interface CategoryListing {
+  node: string;
+  name: string | null;
+  department: "print" | "kindle";
+  marketplace: MarketplaceId;
+  asins: string[];
+  children: CategoryChild[];
+  breadcrumb: string[];
+  fromCache: boolean;
+}
+
+/** What it takes to rank in a category, measured from its bestseller list. */
+export interface CategoryStats {
+  node: string;
+  name: string | null;
+  marketplace: MarketplaceId;
+  department: "print" | "kindle";
+  listed: number;
+  sampled: number;
+  scannedAt: number;
+
+  /** Monthly units the current #1 sells — what you would have to beat. */
+  salesToNumber1: number | null;
+  salesToNumber10: number | null;
+  salesToNumber20: number | null;
+  bsrNumber1: number | null;
+  bsrNumber10: number | null;
+
+  selfPublishedShare: number | null;
+  kindleUnlimitedShare: number | null;
+  avgPrice: number | null;
+  medianPrice: number | null;
+  avgReviews: number | null;
+  medianReviews: number | null;
+  avgPages: number | null;
+  medianAgeMonths: number | null;
+
+  /** 0-100, higher means harder to break into the top 10. */
+  difficulty: number;
+  verdict: Verdict;
+}
+
 export interface KeywordRecord {
   keyword: string;
   /** How many distinct autocomplete probes surfaced this phrase (proxy for demand). */

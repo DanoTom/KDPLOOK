@@ -6,6 +6,7 @@ import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { NichePage } from "./pages/NichePage";
 import { KeywordsPage } from "./pages/KeywordsPage";
+import { CategoryPage } from "./pages/CategoryPage";
 import { BookPage } from "./pages/BookPage";
 import { WatchlistPage } from "./pages/WatchlistPage";
 import { SavedPage } from "./pages/SavedPage";
@@ -56,6 +57,7 @@ function Routes() {
 
   if (path.startsWith("/nicho")) return <NichePage />;
   if (path.startsWith("/keywords")) return <KeywordsPage />;
+  if (path.startsWith("/categorias")) return <CategoryPage />;
   if (path.startsWith("/libro")) return <BookPage />;
   if (path.startsWith("/guardados")) return <SavedPage />;
   if (path.startsWith("/seguimiento")) return <WatchlistPage />;

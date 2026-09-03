@@ -17,6 +17,7 @@ const NAV: NavEntry[] = [
   { to: "/", label: "Panel", icon: <Icon.Compass className="icon" />, group: "Investigar" },
   { to: "/nicho", label: "Explorar nicho", icon: <Icon.Search className="icon" />, group: "Investigar" },
   { to: "/keywords", label: "Laboratorio de keywords", icon: <Icon.Tag className="icon" />, group: "Investigar" },
+  { to: "/categorias", label: "Categorías", icon: <Icon.Trend className="icon" />, group: "Investigar" },
   { to: "/libro", label: "Inspector de libro", icon: <Icon.Book className="icon" />, group: "Investigar" },
   { to: "/guardados", label: "Nichos guardados", icon: <Icon.Bookmark className="icon" />, group: "Biblioteca" },
   { to: "/seguimiento", label: "Seguimiento", icon: <Icon.Eye className="icon" />, group: "Biblioteca" },

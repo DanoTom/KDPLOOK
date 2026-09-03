@@ -20,6 +20,7 @@ export interface ProductDetail {
   format: BookFormat | null;
   formatLabel: string | null;
   selfPublished: boolean | null;
+  kindleUnlimited: boolean;
 }
 
 /**
@@ -405,5 +406,7 @@ export function parseProductPage(html: string, asin: string): ProductDetail {
     format,
     formatLabel: label,
     selfPublished: publisher ? SELF_PUBLISHED_RE.test(publisher) : null,
+    // Only meaningful for Kindle titles; print books are never in the programme.
+    kindleUnlimited: /kindle unlimited|kindleunlimited/i.test(html.slice(0, 400000)),
   };
 }

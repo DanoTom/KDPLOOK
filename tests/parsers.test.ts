@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { parseSearchPage } from "../worker/amazon/search";
 import { parseProductPage } from "../worker/amazon/product";
+import { bestsellerUrl, parseBestsellerPage } from "../worker/amazon/category";
 import { getMarketplace } from "../worker/amazon/marketplaces";
 import { looksBlocked } from "../worker/amazon/fetcher";
 import { parseDate, parseInteger, parsePrice } from "../worker/amazon/html";
@@ -175,6 +176,31 @@ console.log("\nficha de producto (rpi parcial + vinetas con marcas bidi)");
   truthy("ningun campo arrastra marcado ni marcas bidi",
     ![detail.publisher, detail.language, detail.dimensions, detail.isbn]
       .some((v) => v && /[<>]|rlm|lrm|data-/.test(v)));
+}
+
+console.log("\nlista de mas vendidos por categoria");
+{
+  const listing = parseBestsellerPage(fixture("bestsellers.html"));
+  // Document order of the product links is the category ranking.
+  check("asins en orden de ranking", listing.asins, ["B0AAA11111", "B0BBB22222", "B0CCC33333", "B0DDD44444"]);
+  truthy("el enlace promocional previo a la parrilla se ignora", !listing.asins.includes("B0DECOY001"));
+  check("nombre de la categoria", listing.name, "Children's Coloring Books");
+  check("subcategorias de la navegacion", listing.children.map((child) => child.name), [
+    "Books", "Animals", "Fantasy & Magic", "Vehicles",
+  ]);
+  check("nodo de una subcategoria", listing.children[1].node, "3204");
+  check("migas de pan", listing.breadcrumb, ["Children's Coloring Books"]);
+}
+
+console.log("\nurls de mas vendidos");
+{
+  const us = getMarketplace("com");
+  check("raiz de papel", bestsellerUrl(us, "", "print"), "https://www.amazon.com/gp/bestsellers/books/");
+  check("nodo concreto", bestsellerUrl(us, "3204", "print"), "https://www.amazon.com/gp/bestsellers/books/3204/");
+  check("segunda pagina", bestsellerUrl(us, "3204", "print", 2), "https://www.amazon.com/gp/bestsellers/books/3204/?pg=2");
+  check("tienda kindle", bestsellerUrl(us, "", "kindle"), "https://www.amazon.com/gp/bestsellers/digital-text/");
+  check("amazon espana", bestsellerUrl(getMarketplace("es"), "902686031", "print"),
+    "https://www.amazon.es/gp/bestsellers/books/902686031/");
 }
 
 console.log("\ndeteccion de bloqueo");

@@ -18,6 +18,7 @@ import { getMarketplace, marketplaceList, productUrl, searchUrl } from "./amazon
 import { parseSearchPage } from "./amazon/search";
 import { parseProductPage, type ProductDetail } from "./amazon/product";
 import { expandKeywords, type ProbeGroup } from "./amazon/suggest";
+import { bestsellerUrl, parseBestsellerPage } from "./amazon/category";
 import { schemaStatements } from "./schema";
 
 type AppContext = { Bindings: Env; Variables: { settings: AppSettings } };
@@ -324,6 +325,70 @@ function avgOf(values: Array<number | null>): number | null {
   if (!nums.length) return null;
   return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100;
 }
+
+// ---------------------------------------------------------------------------
+// Categories
+//
+// The bestseller page supplies only the ranked list of ASINs; every figure
+// shown comes from the product parser, which is already covered by tests. The
+// client then enriches the top of the list through /api/scan/enrich, exactly
+// like a niche scan, so the same budgets and progress reporting apply.
+// ---------------------------------------------------------------------------
+
+app.post("/api/category/list", async (c) => {
+  const body = await readJson<{
+    node?: string; marketplace?: string; department?: "print" | "kindle"; page?: number; noCache?: boolean;
+  }>(c);
+
+  const settings = await withSettings(c);
+  const marketplace = getMarketplace(body.marketplace ?? settings.marketplace);
+  const department = body.department === "kindle" ? "kindle" : "print";
+  const node = (body.node ?? "").replace(/[^0-9]/g, "").slice(0, 20);
+  const page = Math.max(1, Math.min(2, body.page ?? 1));
+  const url = bestsellerUrl(marketplace, node, department, page);
+  const cacheKey = `category:${marketplace.id}:${department}:${node || "root"}:${page}`;
+
+  if (!body.noCache) {
+    const cached = await cacheGet<Record<string, unknown>>(c.env, cacheKey);
+    if (cached) return c.json({ ...cached, fromCache: true });
+  }
+
+  const outcome = await fetchPage(c.env, settings, url, { language: marketplace.language, attempts: 3 });
+  if (!outcome.ok) {
+    await logFetch(c.env, {
+      kind: "category", target: url, provider: outcome.provider, status: outcome.status,
+      ok: false, blocked: outcome.blocked, ms: outcome.ms, parsed: 0, detail: outcome.error ?? "",
+    });
+    return c.json({
+      error: outcome.blocked ? "Amazon bloqueó la petición" : "No se pudo leer la lista de más vendidos",
+      blocked: outcome.blocked, detail: outcome.error,
+      hint: outcome.blocked ? "Espera unos minutos o sube el tiempo de caché en Ajustes." : undefined,
+    }, 502);
+  }
+
+  const parsed = parseBestsellerPage(outcome.body);
+  await logFetch(c.env, {
+    kind: "category", target: url, provider: outcome.provider, status: outcome.status,
+    ok: true, blocked: false, ms: outcome.ms, parsed: parsed.asins.length,
+    detail: parsed.asins.length ? "" : "0 libros: revisa los selectores",
+  });
+
+  const payload = {
+    node,
+    name: parsed.name,
+    department,
+    marketplace: marketplace.id,
+    asins: parsed.asins,
+    children: parsed.children,
+    breadcrumb: parsed.breadcrumb,
+    fromCache: false,
+    warning: parsed.asins.length === 0
+      ? "La página se descargó pero no se reconoció ningún libro. Mira Diagnóstico."
+      : undefined,
+  };
+  await cacheSet(c.env, cacheKey, payload, settings.cacheTtlHours);
+  return c.json(payload);
+});
 
 // ---------------------------------------------------------------------------
 // Single book

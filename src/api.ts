@@ -1,5 +1,5 @@
 import type {
-  AppSettings, BookRecord, HealthInfo, KeywordRecord, KeywordRun, Marketplace,
+  AppSettings, BookRecord, CategoryListing, HealthInfo, KeywordRecord, KeywordRun, Marketplace,
   MarketplaceId, NicheListItem, NicheSummary, RankPoint, RoyaltyInput, RoyaltyOutput, WatchItem,
 } from "../shared/types";
 import type { ProbeGroup } from "./lib/groups";
@@ -124,6 +124,10 @@ export const api = {
     keyword: string; marketplace: MarketplaceId; page: number;
     department: "print" | "kindle" | "all"; noCache?: boolean;
   }) => post<SearchPageResponse>("/api/scan/search", body),
+
+  categoryList: (body: {
+    node: string; marketplace: MarketplaceId; department: "print" | "kindle"; page?: number; noCache?: boolean;
+  }) => post<CategoryListing & { warning?: string }>("/api/category/list", body),
 
   enrich: (body: { asins: string[]; marketplace: MarketplaceId; noCache?: boolean }) =>
     post<{ details: ProductDetailDto[]; failed: string[]; blocked: boolean; fromCache: number }>("/api/scan/enrich", body),
