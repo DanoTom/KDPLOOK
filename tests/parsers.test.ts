@@ -21,6 +21,7 @@ import { buildEntryPlan } from "../shared/analytics/entry";
 import { summariseNiche } from "../shared/analytics/score";
 import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import { seasonInsight } from "../shared/analytics/season";
+import { findAngles } from "../shared/analytics/angles";
 import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -534,6 +535,60 @@ console.log("\ncombinacion dorada");
   });
   truthy("un nicho barato no encaja", cheap.golden?.fits === false);
   truthy("avisa del margen", cheap.notes.some((n) => /por debajo del objetivo/.test(n)));
+}
+
+console.log("\nangulos de diferenciacion");
+{
+  const mk = (position: number, over: Partial<BookRecord> = {}): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `Sudoku Vol ${position}`, author: "A",
+    url: "", image: "", format: "paperback", formatLabel: "Tapa blanda", price: 11.99,
+    rating: 4.6, reviews: 40, sponsored: false, kindleUnlimited: false, position,
+    bsr: 40_000, categoryRanks: [], pages: 110, publisher: null, publishedAt: null,
+    language: null, isbn: null, dimensions: null, selfPublished: true, enriched: true,
+    salesPerMonth: 25, revenuePerMonth: 90, royaltyPerUnit: 3.6, ageMonths: 10, weakness: 60, ...over,
+  });
+
+  const base = Array.from({ length: 10 }, (_, i) => mk(i + 1));
+
+  // Competitors with plenty of reviews and a mediocre rating are the clearest
+  // opening there is: their own reviewers wrote the spec.
+  const unhappy = findAngles({
+    items: base.map((b, i) => (i < 3 ? { ...b, rating: 3.8, reviews: 200 } : b)),
+    keyword: "sudoku",
+  });
+  truthy("detecta clientes descontentos", unhappy.some((a) => a.id === "clientes-insatisfechos"));
+  check("y lo marca como fuerte", unhappy.find((a) => a.id === "clientes-insatisfechos")?.strength, "fuerte");
+  check("y como deducido de los datos", unhappy.find((a) => a.id === "clientes-insatisfechos")?.source, "dato");
+  // Evidence from this niche always outranks a generic product gap.
+  check("los angulos con evidencia van primero", unhappy[0].source, "dato");
+
+  // Nobody serving large print is a gap; if someone does, it is not.
+  truthy("propone letra grande cuando falta",
+    findAngles({ items: base, keyword: "sudoku" }).some((a) => a.id === "letra-grande"));
+  truthy("no la propone si ya existe",
+    !findAngles({
+      items: base.map((b, i) => (i === 0 ? { ...b, title: "Sudoku en Letra Grande" } : b)),
+      keyword: "sudoku",
+    }).some((a) => a.id === "letra-grande"));
+  truthy("tampoco si la propia consulta ya la cubre",
+    !findAngles({ items: base, keyword: "sudoku letra grande" }).some((a) => a.id === "letra-grande"));
+
+  const old = findAngles({ items: base.map((b) => ({ ...b, ageMonths: 60 })), keyword: "sudoku" });
+  truthy("detecta un catalogo envejecido", old.some((a) => a.id === "catalogo-antiguo"));
+
+  const long = findAngles({ items: base.map((b) => ({ ...b, pages: 240 })), keyword: "sudoku" });
+  truthy("detecta que todos son largos", long.some((a) => a.id === "edicion-breve"));
+
+  truthy("detecta ausencia de tapa dura", findAngles({ items: base, keyword: "sudoku" }).some((a) => a.id === "tapa-dura"));
+  truthy("no la propone si ya la hay",
+    !findAngles({
+      items: base.map((b, i) => (i === 0 ? { ...b, format: "hardcover" as const } : b)),
+      keyword: "sudoku",
+    }).some((a) => a.id === "tapa-dura"));
+
+  // A handful of options is a recommendation; twenty is none.
+  truthy("nunca abruma con opciones", findAngles({ items: base, keyword: "sudoku" }).length <= 6);
+  check("sin muestra suficiente no opina", findAngles({ items: base.slice(0, 2), keyword: "sudoku" }).length, 0);
 }
 
 console.log("\nregalias");

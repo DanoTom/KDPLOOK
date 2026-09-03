@@ -11,6 +11,7 @@ import { fmtCompact, fmtDate, fmtInt, fmtMoney, fmtNum, fmtPct, slug, toneForCom
 import { buildEntryPlan } from "../../shared/analytics/entry";
 import { reviewExpertise } from "../../shared/analytics/checklist";
 import { monthNames, seasonInsight } from "../../shared/analytics/season";
+import { findAngles } from "../../shared/analytics/angles";
 import { useNicheScan, type Department } from "../lib/scan";
 import { useRoute } from "../router";
 import { useApp, useSettings } from "../state";
@@ -358,6 +359,8 @@ function NicheReport({
 
       <EntryPlanCard items={items} currency={currency} />
 
+      <AnglesCard items={items} keyword={summary.keyword} />
+
       <Card>
         <CardHead title="Señales del nicho" note="Cada indicador con su lectura práctica." />
         <div className="card-pad grid grid-3">
@@ -655,5 +658,47 @@ function SeasonBanner({ keyword }: { keyword: string }) {
           : " · según tu guía"}
       </div>
     </Alert>
+  );
+}
+
+
+/**
+ * Where to differentiate, not just whether to enter.
+ *
+ * A niche entered with a commodity product competes only on cover and ad
+ * budget, which is the fight an independent publisher loses. Each angle shows
+ * the evidence behind it so it can be judged rather than followed.
+ */
+function AnglesCard({ items, keyword }: { items: BookRecord[]; keyword: string }) {
+  const angles = useMemo(() => findAngles({ items, keyword }), [items, keyword]);
+  if (!angles.length) return null;
+
+  return (
+    <Card>
+      <CardHead
+        title="Por dónde diferenciarte"
+        note="«Dato» sale de lo que muestran estos competidores; «hueco» es una variación que nadie cubre."
+      />
+      <div className="card-pad grid grid-2">
+        {angles.map((angle) => (
+          <div key={angle.id} className="signal" style={{ alignItems: "flex-start" }}>
+            <span
+              className={`badge badge-${angle.source === "dato" ? "good" : angle.strength === "fuerte" ? "info" : "neutral"}`}
+              style={{ borderRadius: 7, whiteSpace: "nowrap" }}
+              title={angle.source === "dato"
+                ? "Deducido de los datos de este nicho"
+                : "Variación de producto que nadie cubre aquí"}
+            >
+              {angle.source === "dato" ? "dato" : "hueco"}
+            </span>
+            <div className="signal-body">
+              <div className="signal-value" style={{ fontSize: 13.5 }}>{angle.label}</div>
+              <div className="tiny faint" style={{ marginTop: 2 }}>{angle.evidence}</div>
+              <div className="signal-hint">{angle.action}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
