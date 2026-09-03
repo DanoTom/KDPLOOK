@@ -239,6 +239,26 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
 
   summary.signals = buildSignals(summary, settings, currencySymbolFor(marketplace));
   summary.verdict = buildVerdict(summary, settings);
+
+  // A book published weeks ago holds a rank that reflects its launch, not a
+  // rhythm, so the curve reads it as selling more than it does. One such title
+  // is noise; several of them are the demand figure above being inflated, and
+  // that is worth saying before anyone decides to enter on the strength of it.
+  const dated = enriched.filter((b) => b.ageMonths !== null);
+  const launches = dated.filter((b) => (b.ageMonths as number) < 2);
+  if (dated.length >= 4 && launches.length / dated.length >= 0.25) {
+    summary.signals.push({
+      id: "launches",
+      label: "Recién publicados",
+      value: `${launches.length} de ${dated.length}`,
+      tone: "warn",
+      hint: "Llevan menos de dos meses a la venta. Su BSR todavía refleja el empujón del lanzamiento, así que sus ventas estimadas —y con ellas la demanda del nicho— salen altas.",
+    });
+    summary.verdict.reasoning.push(
+      `${launches.length} de los ${dated.length} libros con fecha llevan menos de dos meses publicados: la demanda estimada está tirando hacia arriba.`,
+    );
+  }
+
   return summary;
 }
 

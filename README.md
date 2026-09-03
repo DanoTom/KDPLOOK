@@ -169,6 +169,19 @@ publicación, número total de resultados y las sugerencias del autocompletado.
   magnitud. Si conoces las ventas reales de algún libro, calíbrala en
   **Ajustes → Calibración de la curva de ventas** y toda la app se recalcula al
   instante.
+- **Lo que la curva no puede ver: un lanzamiento.** El BSR es una media ponderada
+  de los pedidos recientes que decae en horas, así que en un libro sin historial
+  una sola venta puede dejar un ranking sorprendentemente bueno durante un día o
+  dos, y la publicidad paga exactamente ese tipo de pico. Multiplicar esa foto
+  por 30 inventa un mes que no ocurrió. Por eso el Inspector marca la estimación
+  como **techo** (no como previsión) cuando el libro tiene menos de dos meses, y
+  como **provisional** hasta los cuatro; el informe de nicho avisa cuando varios
+  de los libros de la primera página son igual de recientes. Durante esas semanas
+  el único dato bueno es el informe de regalías de KDP.
+- **La mediana del ranking, cuando la hay.** Si sigues un libro, KDPLOOK toma una
+  muestra diaria de su BSR y, con una semana de muestras, estima sobre la mediana
+  de la serie en lugar de sobre la lectura del día. Es la diferencia entre lo que
+  el libro *sostiene* y lo que *tocó* la tarde en que lo miraste.
 - **Regalías.** Aplican el modelo de KDP (60 % menos coste de impresión en papel;
   70 % o 35 % en Kindle según la banda de precio). Las tarifas de impresión son
   las de EE. UU. y Amazon las revisa: son editables en Ajustes.

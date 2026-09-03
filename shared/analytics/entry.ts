@@ -126,6 +126,14 @@ export function buildEntryPlan(input: EntryPlanInput): EntryPlan {
   if (monthsToReviews !== null) {
     notes.push(`El plazo de reseñas asume ${reviewsPerHundredSales} por cada 100 ventas: es una suposición del sector, no un dato medido. Ajústala si conoces tu tasa real.`);
   }
+  if (target && target.ageMonths !== null && target.ageMonths < 2) {
+    // The bar is set by whatever the target sells, and a launch rank overstates
+    // that. Better to know the bar may be lower than to walk away from the niche.
+    notes.push(
+      `El libro de referencia lleva menos de dos meses publicado: su ritmo sale de un ranking de lanzamiento, ` +
+      `así que el listón para entrar es probablemente más bajo de lo que marca aquí.`,
+    );
+  }
   if (royaltyPerUnit === null && suggestedPrice !== null) {
     notes.push("A ese precio y con esa extensión la impresión se come la regalía: necesitarías menos páginas o un precio más alto.");
   }

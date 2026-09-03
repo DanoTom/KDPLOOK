@@ -325,6 +325,26 @@ function CalibrationCard() {
 
   const suggestion = reading ? Math.round((Number(sales) / reading.raw) * 100) / 100 : null;
 
+  // A stored multiplier was fitted against whatever the curve said the day it
+  // was measured. Refitting the curve — as happened when Amazon.es got one of
+  // its own — leaves that correction behind, still quietly inflating every
+  // estimate. `suggestCalibration` re-reads the live curve, so comparing it
+  // with what is stored is enough to notice.
+  const storedFactor = settings.calibrationByMarket?.[marketplace] ?? null;
+  const liveFactor = samples.length ? suggestCalibration(samples) : null;
+  const stale =
+    storedFactor !== null && liveFactor !== null &&
+    Math.abs(liveFactor - storedFactor) / storedFactor > 0.12
+      ? liveFactor
+      : null;
+
+  async function refit(multiplier: number) {
+    await updateSettings({
+      calibrationByMarket: { ...(settings?.calibrationByMarket ?? {}), [marketplace]: multiplier },
+    });
+    toast(`${market?.label ?? marketplace} recalibrado a ×${multiplier.toFixed(2)}`, "good");
+  }
+
   return (
     <Card>
       <CardHead
@@ -339,10 +359,27 @@ function CalibrationCard() {
 
       <div className="card-pad stack">
         <Alert tone="info">
-          La curva BSR→ventas está ajustada sobre la tienda de EE.&nbsp;UU.; el resto de tiendas usan un
-          factor aproximado. Un solo libro tuyo convierte esa suposición en un dato: la app lee su
-          clasificación y calcula cuánto se desvía de tus ventas reales.
+          La curva BSR→ventas de Amazon.es está ajustada con datos de esa tienda; las demás parten de la
+          curva de EE.&nbsp;UU. escalada por tamaño de mercado. Un solo libro tuyo convierte esa suposición
+          en un dato: la app lee su clasificación y calcula cuánto se desvía de tus ventas reales.
         </Alert>
+
+        {stale !== null ? (
+          <Alert tone="warn">
+            <strong>Este multiplicador se quedó viejo.</strong>
+            <div className="small" style={{ marginTop: 6, lineHeight: 1.7 }}>
+              Está guardado en ×{storedFactor?.toFixed(2)}, pero con la curva actual tus mismos libros de
+              referencia piden <strong>×{stale.toFixed(2)}</strong>. Mientras no lo actualices, todas las
+              estimaciones de {market?.label} salen{" "}
+              {stale < (storedFactor ?? 1) ? "más altas" : "más bajas"} de lo que deberían.
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <Button variant="primary" icon={<Icon.Check size={15} />} onClick={() => refit(stale)}>
+                Recalcular a ×{stale.toFixed(2)}
+              </Button>
+            </div>
+          </Alert>
+        ) : null}
 
         <div className="grid grid-2">
           <Field label="ASIN de un libro tuyo" help="También vale pegar la URL de Amazon.">

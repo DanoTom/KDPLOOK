@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { MarketplaceId, RankPoint } from "../../shared/types";
+import { calibrationFor, salesPerMonth as salesFromBsr } from "../../shared/analytics/bsr";
+import { assessEstimate, estimateRange, type EstimateReliability } from "../../shared/analytics/reliability";
+import { monthsSince } from "../../shared/analytics/score";
 import { api, type ProductDetailDto } from "../api";
 import { LineChart } from "../components/charts";
 import { Icon } from "../components/icons";
@@ -89,6 +92,34 @@ export function BookPage() {
   const detail = data?.detail;
   const marketLabel = marketplaces.find((m) => m.id === marketplace)?.label ?? marketplace;
 
+  // Whether today's rank can be read as a monthly rate at all. It usually can;
+  // on a book that launched last week it cannot, and saying so is the whole
+  // point of the panel below.
+  const reliability = useMemo<EstimateReliability | null>(
+    () => (data
+      ? assessEstimate({
+          bsr: data.detail.bsr,
+          ageMonths: monthsSince(data.detail.publishedAt),
+          reviews: data.detail.reviews,
+          salesPerMonth: data.estimates.salesPerMonth,
+          history: data.history,
+        })
+      : null),
+    [data],
+  );
+
+  // Once there is a week of samples the median rank is the better input: it is
+  // what the book holds rather than what it touched on the day you looked.
+  const sustainedSales = useMemo(() => {
+    if (!data || !settings || !reliability?.sustained) return null;
+    return salesFromBsr(
+      reliability.sustained.medianBsr,
+      data.detail.format ?? "paperback",
+      marketplace,
+      calibrationFor(settings, marketplace),
+    );
+  }, [data, settings, reliability, marketplace]);
+
   return (
     <Layout
       title="Inspector de libro"
@@ -170,13 +201,26 @@ export function BookPage() {
               />
               <Kpi
                 label="Ventas/mes est." value={data.estimates.salesPerMonth !== null ? fmtInt(data.estimates.salesPerMonth) : "—"}
-                tone="accent" sub="derivado del BSR"
+                tone={reliability?.level === "techo" ? "warn" : "accent"}
+                sub={rangeLabel(data.estimates.salesPerMonth, reliability, (v) => fmtInt(v)) ?? "derivado del BSR"}
               />
               <Kpi
                 label="Regalía/mes est." value={fmtMoney(data.estimates.revenuePerMonth, currencySymbol)}
-                tone="accent" sub={`${fmtMoney(data.estimates.royaltyPerUnit, currencySymbol)} por unidad`}
+                tone={reliability?.level === "techo" ? "warn" : "accent"}
+                sub={rangeLabel(data.estimates.revenuePerMonth, reliability, (v) => fmtMoney(v, currencySymbol))
+                  ?? `${fmtMoney(data.estimates.royaltyPerUnit, currencySymbol)} por unidad`}
               />
             </div>
+
+            {reliability && data.estimates.salesPerMonth !== null ? (
+              <EstimateTrust
+                reliability={reliability}
+                sales={data.estimates.salesPerMonth}
+                sustainedSales={sustainedSales}
+                royaltyPerUnit={data.estimates.royaltyPerUnit}
+                currencySymbol={currencySymbol}
+              />
+            ) : null}
 
             {detail.categoryRanks.length ? (
               <Card>
@@ -237,6 +281,71 @@ export function BookPage() {
   );
 }
 
+
+/** The KPI subtitle: a band rather than a single number, when we know one. */
+function rangeLabel(
+  value: number | null,
+  reliability: EstimateReliability | null,
+  format: (value: number) => string,
+): string | null {
+  if (value === null || !reliability) return null;
+  if (reliability.level === "techo") return "es un techo: puede ser 0";
+  const range = estimateRange(value, reliability);
+  if (!range) return null;
+  if (reliability.level === "provisional") return `probablemente entre ${format(range[0])} y ${format(range[1])}`;
+  return `rango probable ${format(range[0])}–${format(range[1])}`;
+}
+
+
+/**
+ * Says out loud what the BSR estimate assumes.
+ *
+ * The curve converts a rank into "what a book holding this rank steadily
+ * sells". On a title that launched days ago, or one running ads, the rank is a
+ * burst rather than a rhythm, and the monthly figure above becomes a ceiling
+ * the book may be nowhere near. Every tool on the market has this limit; the
+ * difference worth having is admitting where it bites.
+ */
+function EstimateTrust({
+  reliability, sales, sustainedSales, royaltyPerUnit, currencySymbol,
+}: {
+  reliability: EstimateReliability;
+  sales: number;
+  sustainedSales: number | null;
+  royaltyPerUnit: number | null;
+  currencySymbol: string;
+}) {
+  const { sustained } = reliability;
+  const sustainedRoyalty = sustainedSales !== null && royaltyPerUnit !== null
+    ? Math.round(sustainedSales * royaltyPerUnit * 100) / 100
+    : null;
+
+  return (
+    <Card>
+      <CardHead title="Cuánto fiarse de esta estimación">
+        <Badge tone={reliability.tone === "good" ? "good" : reliability.tone === "warn" ? "warn" : "bad"}>
+          {reliability.label}
+        </Badge>
+      </CardHead>
+      <div className="card-pad stack-sm">
+        <ul className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+          {reliability.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+        </ul>
+
+        {sustained && sustainedSales !== null && Math.abs(sustainedSales - sales) >= 0.5 ? (
+          <Alert tone="info">
+            Sobre la mediana de su ranking ({fmtCompact(sustained.medianBsr)}) salen{" "}
+            <strong>{fmtInt(sustainedSales)} ventas/mes</strong>
+            {sustainedRoyalty !== null ? <> y {fmtMoney(sustainedRoyalty, currencySymbol)} de regalía</> : null}
+            , frente a las {fmtInt(sales)} que da la lectura de hoy. La primera cifra es la que describe el ritmo.
+          </Alert>
+        ) : null}
+
+        {reliability.advice ? <Alert tone={reliability.level === "techo" ? "warn" : "info"}>{reliability.advice}</Alert> : null}
+      </div>
+    </Card>
+  );
+}
 
 /**
  * Whether the book actually turns up when someone searches for it.

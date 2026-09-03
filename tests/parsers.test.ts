@@ -22,6 +22,7 @@ import { summariseNiche } from "../shared/analytics/score";
 import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
+import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
 import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -615,6 +616,105 @@ console.log("\nregalias");
     DEFAULT_PRINTING_COSTS,
   );
   check("fuera de banda cae al 35%", kindle35.royaltyRate, 0.35);
+}
+
+console.log("\nfiabilidad de la estimacion");
+{
+  const day = 24 * 60 * 60 * 1000;
+  const point = (daysAgo: number, bsr: number | null) => ({
+    capturedAt: Date.now() - daysAgo * day,
+    bsr, price: 16.99, rating: null, reviews: null, salesEst: null,
+  });
+
+  // Dano's own case: a title published thirteen days ago, running ads, showing
+  // BSR 21.000 and no sales at all in KDP. The projection is a ceiling.
+  const launch = assessEstimate({
+    bsr: 21_000, ageMonths: 0.43, reviews: 0, salesPerMonth: 24,
+  });
+  check("un lanzamiento no se lee como ritmo", launch.level, "techo");
+  truthy("y dice cuantos dias lleva", launch.reasons.some((r) => r.includes("13 días")));
+  truthy("con la advertencia de usar el informe de KDP", (launch.advice ?? "").includes("KDP"));
+  check("la banda baja hasta cero", estimateRange(24, launch), [0, 24]);
+
+  // Past the launch window the estimate is usable, but a single reading is
+  // still a single reading.
+  const settled = assessEstimate({
+    bsr: 21_000, ageMonths: 14, reviews: 38, salesPerMonth: 24,
+  });
+  check("un libro asentado si se estima", settled.level, "solida");
+  truthy("aunque avise de que es una sola lectura", settled.reasons.some((r) => r.includes("única lectura")));
+  truthy("y proponga seguirlo", (settled.advice ?? "").includes("seguimiento"));
+
+  // Between two and four months the launch still shows through.
+  check("los primeros meses quedan provisionales",
+    assessEstimate({ bsr: 21_000, ageMonths: 3, reviews: 12, salesPerMonth: 24 }).level, "provisional");
+
+  // Sales the curve claims would have left reviews behind them by now.
+  const mismatch = assessEstimate({ bsr: 8_000, ageMonths: 10, reviews: 0, salesPerMonth: 60 });
+  check("600 ventas sin una sola resena no cuadra", mismatch.level, "techo");
+  truthy("y lo dice con la cifra implicada", mismatch.reasons.some((r) => r.includes("600 ventas")));
+
+  // A rank series is what actually replaces the guess.
+  const steady = [point(14, 40_000), point(10, 44_000), point(6, 38_000), point(2, 42_000)];
+  const read = readSeries(steady);
+  truthy("cuatro muestras en dos semanas valen como serie", read !== null);
+  check("la mediana del ranking", read?.medianBsr, 41_000);
+  check("y su vaiven", read?.swing, 1.2);
+
+  const stable = assessEstimate({ bsr: 42_000, ageMonths: 14, reviews: 38, salesPerMonth: 6, history: steady });
+  check("una serie estable no rebaja la fiabilidad", stable.level, "solida");
+  check("y ya no pide seguimiento", stable.advice, null);
+
+  const swinging = assessEstimate({
+    bsr: 12_000, ageMonths: 14, reviews: 38, salesPerMonth: 26,
+    history: [point(12, 12_000), point(8, 90_000), point(4, 60_000), point(1, 150_000)],
+  });
+  check("un ranking que oscila deja la lectura provisional", swinging.level, "provisional");
+
+  // Too few samples, or too short a window, is not a series.
+  check("dos muestras no son una serie", readSeries([point(6, 10_000), point(1, 12_000)]), null);
+  check("tres muestras en dos dias tampoco",
+    readSeries([point(2, 10_000), point(1, 11_000), point(0, 12_000)]), null);
+  check("ni tres muestras sin ranking",
+    readSeries([point(9, null), point(5, null), point(1, null)]), null);
+
+  // No rank at all: there is nothing to derive sales from, and it says so.
+  const noRank = assessEstimate({ bsr: null, ageMonths: 20, reviews: 5, salesPerMonth: null });
+  check("sin BSR no hay estimacion", noRank.level, "techo");
+  check("sin BSR no hay rango", estimateRange(null, noRank), null);
+}
+
+console.log("\nnicho inflado por lanzamientos");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const make = (position: number, ageMonths: number): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `T${position}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 12, rating: 4.4, reviews: 5,
+    sponsored: false, kindleUnlimited: false, position, bsr: 20_000, categoryRanks: [], pages: 120,
+    publisher: null, publishedAt: null, language: null, isbn: null, dimensions: null,
+    selfPublished: null, enriched: true, salesPerMonth: 30, revenuePerMonth: 90,
+    royaltyPerUnit: 3, ageMonths, weakness: 60,
+  });
+
+  // Half the page published in the last few weeks: the demand figure is reading
+  // launch bursts, and the report has to say so before anyone acts on it.
+  const fresh = summariseNiche(
+    [...Array.from({ length: 5 }, (_, i) => make(i + 1, 0.5)), ...Array.from({ length: 5 }, (_, i) => make(i + 6, 20))],
+    { keyword: "agenda 2027", marketplace: "es", settings, totalResults: 3_000, resultsCountText: null },
+  );
+  const warned = fresh.signals.find((sig) => sig.id === "launches");
+  check("avisa de cuantos son recien publicados", warned?.value, "5 de 10");
+  truthy("y lo suma al razonamiento del veredicto",
+    fresh.verdict.reasoning.some((r) => r.includes("menos de dos meses")));
+
+  const mature = summariseNiche(
+    Array.from({ length: 10 }, (_, i) => make(i + 1, 20)),
+    { keyword: "agenda 2027", marketplace: "es", settings, totalResults: 3_000, resultsCountText: null },
+  );
+  check("un nicho asentado no lo lleva", mature.signals.some((sig) => sig.id === "launches"), false);
 }
 
 console.log(`\n${passed} pruebas superadas, ${failed} fallidas\n`);
