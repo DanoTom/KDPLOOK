@@ -106,6 +106,8 @@ export interface ProbeResponse {
   snippet: string;
   excerpt: string;
   anchor: string | null;
+  checks: Array<{ name: string; found: boolean }>;
+  excerpts: Array<{ label: string; text: string }>;
   parsed: unknown;
 }
 

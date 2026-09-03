@@ -647,7 +647,7 @@ app.post("/api/debug/probe", async (c) => {
     bodyLength: outcome.body.length,
     title: /<title>([^<]{0,200})<\/title>/i.exec(outcome.body)?.[1] ?? null,
     snippet: outcome.body.slice(0, 900),
-    ...relevantExcerpt(outcome.body, kind),
+    ...probeDiagnostics(outcome.body, kind),
     parsed: parsedSummary,
   });
 });
@@ -659,27 +659,61 @@ function detectProbeKind(pathname: string): "search" | "product" | "category" {
 }
 
 /**
- * Amazon pages open with a kilobyte of head boilerplate that says nothing about
- * why a parser missed. Return the markup around the structure this page type is
- * supposed to contain, plus which anchor was found — the absence of every
- * anchor is itself the diagnosis.
+ * Per-field diagnosis of a fetched page.
+ *
+ * A single excerpt tells you whether the page looks right, but not which
+ * extractor missed. Listing the anchor each field depends on — and returning
+ * the markup around the ones that matter — turns one probe into the whole
+ * answer: a field is null either because its anchor is absent (Amazon moved
+ * it) or because it is present and the pattern under it no longer matches.
  */
-function relevantExcerpt(html: string, kind: "search" | "product" | "category"): { excerpt: string; anchor: string | null } {
-  const anchors =
-    kind === "category"
-      ? ['id="gridItemRoot"', 'p13n-desktop-grid', 'id="zg-ordered-list"', 'zg-grid-general-faceout', 'id="zg-left-col"', "/dp/"]
-      : kind === "product"
-        ? ["data-rpi-attribute-name", 'id="detailBullets_feature_div"', 'id="productDetails', 'id="productTitle"']
-        : ['data-component-type="s-search-result"', 's-main-slot', 'data-asin="'];
+function probeDiagnostics(
+  html: string,
+  kind: "search" | "product" | "category",
+): { anchor: string | null; excerpt: string; checks: Array<{ name: string; found: boolean }>; excerpts: Array<{ label: string; text: string }> } {
+  const groups: Record<typeof kind, Array<{ label: string; anchors: string[] }>> = {
+    product: [
+      { label: "Título", anchors: ['id="productTitle"', 'id="title"'] },
+      { label: "Autor", anchors: ['id="bylineInfo"', "contributorNameID", 'class="author'] },
+      { label: "Valoración y reseñas", anchors: ['id="acrCustomerReviewText"', 'id="acrPopover"', 'id="averageCustomerReviews"'] },
+      { label: "Precio", anchors: ['id="corePriceDisplay', 'id="corePrice_feature_div"', 'id="corePrice_desktop"', 'class="slot-price"', 'class="a-price"'] },
+      { label: "Ficha técnica", anchors: ["data-rpi-attribute-name", 'id="detailBullets_feature_div"', 'id="productDetails'] },
+      { label: "Clasificación", anchors: ["Best Sellers Rank", "Clasificación en los más vendidos", "Amazon Bestseller-Rang"] },
+    ],
+    search: [
+      { label: "Tarjetas de resultado", anchors: ['data-component-type="s-search-result"', "s-main-slot", 'data-asin="'] },
+      { label: "Recuento de resultados", anchors: ['data-component-type="s-result-info-bar"', "<h1"] },
+    ],
+    category: [
+      { label: "Parrilla de más vendidos", anchors: ['id="gridItemRoot"', "p13n-desktop-grid", 'id="zg-ordered-list"'] },
+      { label: "Navegación de categorías", anchors: ['id="zg-left-col"', 'role="group"', "zg_browseRoot"] },
+    ],
+  };
 
-  for (const anchor of anchors) {
-    const idx = html.indexOf(anchor);
-    if (idx >= 0) {
-      return { excerpt: html.slice(Math.max(0, idx - 400), idx + 2400), anchor };
+  const checks: Array<{ name: string; found: boolean }> = [];
+  const excerpts: Array<{ label: string; text: string }> = [];
+  let firstAnchor: string | null = null;
+  let firstExcerpt = "";
+
+  for (const group of groups[kind]) {
+    const hit = group.anchors.find((anchor) => html.includes(anchor)) ?? null;
+    checks.push({ name: group.label, found: hit !== null });
+    if (!hit) continue;
+    const idx = html.indexOf(hit);
+    const text = html.slice(Math.max(0, idx - 300), idx + 1600);
+    if (!firstAnchor) {
+      firstAnchor = hit;
+      firstExcerpt = text;
+    }
+    // Keep the response small: the fields that keep coming back empty first.
+    if (excerpts.length < 3 && /Precio|reseñas|Clasificación|resultado|parrilla/i.test(group.label)) {
+      excerpts.push({ label: `${group.label} — «${hit}»`, text });
     }
   }
-  return { excerpt: "", anchor: null };
+
+  return { anchor: firstAnchor, excerpt: firstExcerpt, checks, excerpts };
 }
+
 
 app.get("/api/debug/log", async (c) => c.json(await recentFetches(c.env, 100)));
 

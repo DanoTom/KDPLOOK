@@ -250,7 +250,20 @@ function CalibrationCard() {
     setProblem(null);
     setReading(null);
     try {
-      const response = await api.book(code, marketplace, true);
+      // Amazon turns away a share of detail pages; the same request usually
+      // works moments later, so do the retrying instead of asking the user to.
+      let response = null as Awaited<ReturnType<typeof api.book>> | null;
+      for (let attempt = 1; attempt <= 3 && !response; attempt++) {
+        try {
+          response = await api.book(code, marketplace, true);
+        } catch (err) {
+          if (attempt === 3) throw err;
+          setProblem(`Amazon rechazó la petición · reintentando (${attempt} de 3)…`);
+          await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+        }
+      }
+      if (!response) return;
+      setProblem(null);
       const bsr = response.detail.bsr;
       if (!bsr) {
         setProblem("Amazon no muestra clasificación para ese libro ahora mismo, así que no hay nada con lo que comparar. Prueba con otro título o vuelve a intentarlo.");

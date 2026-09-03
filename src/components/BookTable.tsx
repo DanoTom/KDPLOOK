@@ -125,7 +125,17 @@ export function BookTable({
                 <td className="num">{book.rating !== null ? fmtNum(book.rating, 1) : "—"}</td>
                 <td className="num">{fmtInt(book.reviews)}</td>
                 <td className="num">{book.bsr !== null ? fmtCompact(book.bsr) : <span className="faint">—</span>}</td>
-                <td className="num">{book.salesPerMonth !== null ? fmtInt(book.salesPerMonth) : "—"}</td>
+                <td className="num">
+                  {book.salesPerMonth !== null ? (
+                    <>
+                      {fmtInt(book.salesPerMonth)}
+                      {/* Below ~3 a day the monthly figure hides how slow the book really moves. */}
+                      {book.salesPerMonth < 100 ? (
+                        <div className="tiny faint">{fmtNum(book.salesPerMonth / 30.44, 2)}/día</div>
+                      ) : null}
+                    </>
+                  ) : "—"}
+                </td>
                 <td className="num">{fmtMoney(book.revenuePerMonth, currency)}</td>
                 <td className="num">{fmtInt(book.pages)}</td>
                 <td className="small">{book.publishedAt ? fmtDate(book.publishedAt) : "—"}</td>

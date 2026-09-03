@@ -160,15 +160,30 @@ export function DiagnosticsPage() {
                   <pre className="code">{JSON.stringify(probe.parsed, null, 2) || "null"}</pre>
                 </Field>
                 <Field
-                  label={probe.anchor
-                    ? `Marcado alrededor de «${probe.anchor}»`
-                    : "No se encontró ninguna estructura conocida en la página"}
-                  help={probe.anchor
-                    ? "Es el trozo de HTML del que el parser debería extraer los datos."
-                    : "Ni un solo contenedor esperado aparece: o Amazon cambió el marcado por completo, o esta no es la página que creemos."}
+                  label="Qué encuentra en la página"
+                  help="Un campo vacío con su ancla presente significa que el patrón cambió; sin ancla, Amazon movió la sección entera."
                 >
-                  <pre className="code" style={{ maxHeight: 260 }}>{probe.excerpt || "(sin coincidencias)"}</pre>
+                  <div className="row-tight">
+                    {(probe.checks ?? []).map((check) => (
+                      <Badge key={check.name} tone={check.found ? "good" : "bad"}>
+                        {check.found ? "✓" : "✗"} {check.name}
+                      </Badge>
+                    ))}
+                  </div>
                 </Field>
+
+                {(probe.excerpts ?? []).map((piece) => (
+                  <Field key={piece.label} label={piece.label}>
+                    <pre className="code" style={{ maxHeight: 200 }}>{piece.text}</pre>
+                  </Field>
+                ))}
+
+                {!(probe.checks ?? []).some((check) => check.found) ? (
+                  <Alert tone="bad">
+                    Ni un solo contenedor esperado aparece. O Amazon cambió el marcado por completo,
+                    o esta no es la página que creemos que es.
+                  </Alert>
+                ) : null}
                 <Field label="Primeros bytes de la respuesta">
                   <pre className="code" style={{ maxHeight: 160 }}>{probe.snippet}</pre>
                 </Field>
