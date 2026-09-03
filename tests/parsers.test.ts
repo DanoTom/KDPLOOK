@@ -19,6 +19,7 @@ import { calibrationFor, salesPerMonth, suggestCalibration } from "../shared/ana
 import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost } from "../shared/analytics/royalty";
 import { buildEntryPlan } from "../shared/analytics/entry";
 import { summariseNiche } from "../shared/analytics/score";
+import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -375,6 +376,92 @@ console.log("\ndemanda con resultados sesgados");
   check("la mediana ignora las superventas", summary.medianSalesPerMonth, 12);
   truthy("la media si se dispara (280 frente a 12)", (summary.avgSalesPerMonth ?? 0) > 250);
   truthy("la demanda se puntua por la mediana, no por la media", summary.demandScore < 50);
+}
+
+console.log("\ncurva propia de amazon.es");
+{
+  // Both anchors the curve was fitted to must come back out of it.
+  const atTenK = salesPerMonth(10_000, "paperback", "es") ?? 0;
+  truthy("BSR 10.000 da alrededor de una venta diaria", atTenK > 28 && atTenK < 33);
+  const measured = salesPerMonth(334_200, "paperback", "es") ?? 0;
+  truthy("BSR 334.200 reproduce las 1,75 ventas/mes medidas", Math.abs(measured - 1.75) < 0.1);
+
+  // The old approach scaled the US curve, which fitted neither end.
+  truthy("es monotona", (salesPerMonth(50_000, "paperback", "es") ?? 0) > (salesPerMonth(500_000, "paperback", "es") ?? 0));
+  truthy("la calibracion sigue escalando",
+    Math.abs((salesPerMonth(10_000, "paperback", "es", 2) ?? 0) - 2 * atTenK) < 0.2);
+
+  // Other storefronts keep the US curve scaled by market size.
+  truthy("estados unidos no cambia", (salesPerMonth(10_000, "paperback", "com") ?? 0) > 500);
+  truthy("alemania sigue escalada", (salesPerMonth(10_000, "paperback", "de") ?? 0) < (salesPerMonth(10_000, "paperback", "com") ?? 0));
+
+  // With the measurement now inside the curve, no correction is left to make.
+  const factor = suggestCalibration([
+    { actualSalesPerMonth: 1.75, rawEstimate: 1.2, bsr: 334_200, format: "paperback", marketplace: "es" },
+  ]);
+  truthy("una muestra ya incorporada no pide correccion", factor !== null && Math.abs(factor - 1) < 0.06);
+}
+
+console.log("\ncriterios de entrada del operador");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+
+  const b = (position: number, over: Partial<BookRecord> = {}): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `T${position}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 12.99, rating: 4.5, reviews: 30,
+    sponsored: false, kindleUnlimited: false, position, bsr: 6_000, categoryRanks: [], pages: 104,
+    publisher: "Independently published", publishedAt: null, language: null, isbn: null, dimensions: null,
+    selfPublished: true, enriched: true, salesPerMonth: 40, revenuePerMonth: 180,
+    royaltyPerUnit: 4.5, ageMonths: 8, weakness: 70, ...over,
+  });
+
+  check("umbral de BSR para espana", demandBsrFor("es"), 10_000);
+  check("umbral de BSR para estados unidos", demandBsrFor("com"), 300_000);
+
+  const green = reviewExpertise(Array.from({ length: 10 }, (_, i) => b(i + 1)),
+    { marketplace: "es", totalResults: 800, settings });
+  check("nicho verde pasa los tres", green.passed, 3);
+  check("sin banderas rojas", green.flags.length, 0);
+
+  const crowded = reviewExpertise(Array.from({ length: 10 }, (_, i) => b(i + 1)),
+    { marketplace: "es", totalResults: 12_000, settings });
+  check("mas de 2.000 resultados suspende competencia", crowded.gates[0].pass, false);
+
+  // Every competitor past a thousand reviews: unassailable head-on.
+  const entrenched = reviewExpertise(Array.from({ length: 10 }, (_, i) => b(i + 1, { reviews: 3_000 })),
+    { marketplace: "es", totalResults: 800, settings });
+  check("prueba social masiva suspende viabilidad", entrenched.gates[2].pass, false);
+
+  // Nothing selling: demand is not proven.
+  const quiet = reviewExpertise(Array.from({ length: 10 }, (_, i) => b(i + 1, { bsr: 400_000 })),
+    { marketplace: "es", totalResults: 800, settings });
+  check("sin libros por debajo del umbral suspende demanda", quiet.gates[1].pass, false);
+
+  // One live title among corpses: traffic is coming from outside Amazon.
+  const oneSeller = [b(1, { bsr: 3_000 }), ...Array.from({ length: 8 }, (_, i) => b(i + 2, { bsr: 3_500_000 }))];
+  const trap = reviewExpertise(oneSeller, { marketplace: "es", totalResults: 700, settings });
+  truthy("detecta el nicho de un solo vendedor", trap.flags.some((f) => f.id === "trafico-externo"));
+
+  const cheap = reviewExpertise(Array.from({ length: 10 }, (_, i) => b(i + 1, { price: 6.5 })),
+    { marketplace: "es", totalResults: 800, settings });
+  truthy("detecta guerra de precios", cheap.flags.some((f) => f.id === "guerra-precios"));
+
+  const houses = reviewExpertise(
+    Array.from({ length: 10 }, (_, i) => b(i + 1, { selfPublished: false, publisher: "Planeta" })),
+    { marketplace: "es", totalResults: 800, settings });
+  truthy("detecta monopolio editorial", houses.flags.some((f) => f.id === "monopolio-editorial"));
+
+  const ads = reviewExpertise(
+    [...Array.from({ length: 5 }, (_, i) => b(i + 1, { sponsored: true, position: 0 })),
+     ...Array.from({ length: 8 }, (_, i) => b(i + 1))],
+    { marketplace: "es", totalResults: 800, settings });
+  truthy("detecta patrocinados dominando", ads.flags.some((f) => f.id === "patrocinados"));
+
+  const blind = reviewExpertise([], { marketplace: "es", totalResults: null, settings });
+  check("sin datos no se pronuncia", blind.tone, "unknown");
 }
 
 console.log("\nregalias");

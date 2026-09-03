@@ -9,6 +9,7 @@ import { Alert, Badge, Button, Card, CardHead, Empty, Field, Kpi, Progress, Segm
 import { downloadCsv, toCsv } from "../lib/csv";
 import { fmtCompact, fmtDate, fmtInt, fmtMoney, fmtNum, fmtPct, slug, toneForCompetition, toneForScore } from "../lib/format";
 import { buildEntryPlan } from "../../shared/analytics/entry";
+import { reviewExpertise } from "../../shared/analytics/checklist";
 import { useNicheScan, type Department } from "../lib/scan";
 import { useRoute } from "../router";
 import { useApp, useSettings } from "../state";
@@ -304,6 +305,8 @@ function NicheReport({
 
   return (
     <div className="stack-lg">
+      <ExpertGates items={items} summary={summary} />
+
       <div className="report-head">
         <Card pad className={`verdict tone-${summary.verdict.tone}`}>
           <Gauge value={summary.opportunityScore} label="Oportunidad" tone={toneForScore(summary.opportunityScore)} />
@@ -537,6 +540,73 @@ function EntryPlanCard({ items, currency }: { items: BookRecord[]; currency: str
             {plan.notes.map((note) => <li key={note}>{note}</li>)}
           </ul>
         ) : null}
+      </div>
+    </Card>
+  );
+}
+
+
+/**
+ * The publisher's own entry criteria, shown before any score.
+ *
+ * A 0-100 number is an opinion with the reasoning removed. These three gates
+ * come from the field guide the publisher works to, and each one states the
+ * threshold it applied, so the verdict can be argued with rather than trusted.
+ */
+function ExpertGates({ items, summary }: { items: BookRecord[]; summary: NicheSummary }) {
+  const settings = useSettings();
+  const review = useMemo(
+    () => reviewExpertise(items, {
+      marketplace: summary.marketplace,
+      totalResults: summary.totalResults,
+      settings,
+    }),
+    [items, summary, settings],
+  );
+
+  return (
+    <Card>
+      <CardHead
+        title="Criterios de entrada"
+        note="Los tres filtros objetivos antes de comprometer un título."
+      >
+        <Badge tone={review.tone === "great" ? "good" : review.tone === "good" ? "info" : review.tone === "mixed" ? "warn" : review.tone === "bad" ? "bad" : "neutral"}>
+          {review.passed}/{review.evaluated || 3} · {review.headline}
+        </Badge>
+      </CardHead>
+
+      <div className="card-pad stack">
+        <div className="grid grid-3">
+          {review.gates.map((gate) => (
+            <div key={gate.id} className="signal" style={{ alignItems: "flex-start" }}>
+              <span
+                className={`badge badge-${gate.pass === true ? "good" : gate.pass === false ? "bad" : "neutral"}`}
+                style={{ borderRadius: 7, minWidth: 26, justifyContent: "center" }}
+              >
+                {gate.pass === true ? "✓" : gate.pass === false ? "✗" : "?"}
+              </span>
+              <div className="signal-body">
+                <div className="signal-label">{gate.label}</div>
+                <div className="signal-value">{gate.value}</div>
+                <div className="tiny faint" style={{ marginTop: 2 }}>Requisito: {gate.requirement}</div>
+                <div className="signal-hint">{gate.detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {review.flags.map((flag) => (
+          <Alert key={flag.id} tone={flag.severity === "alto" ? "bad" : "warn"}>
+            <strong>{flag.label}</strong>
+            <div className="small" style={{ marginTop: 3 }}>{flag.detail}</div>
+          </Alert>
+        ))}
+
+        <div className="tiny faint" style={{ lineHeight: 1.6 }}>
+          Un criterio que no se puede evaluar aparece como «?» y no cuenta ni a favor ni en contra.
+          Comprueba siempre a mano el riesgo de marca registrada: una palabra clave con una marca o
+          celebridad puede costar la cuenta por mucho que los números acompañen.
+        </div>
       </div>
     </Card>
   );

@@ -32,6 +32,33 @@ const KINDLE_ANCHORS: Anchor[] = [
 ];
 
 /**
+ * Amazon.es, fitted to two real anchors rather than scaled from the US curve.
+ *
+ *   BSR  10,000 → ~1 sale/day   — the "sells well" line for .es, per the
+ *                                 operator guide: past 10-12k a title stops
+ *                                 making a sale a day.
+ *   BSR 334,200 → 1.75/month    — measured on a title whose owner knows its
+ *                                 real yearly figure.
+ *
+ * A power law through those two lands at a log-log slope of -0.814, and the
+ * table below follows it from BSR 100 down the tail. Above BSR 100 the fit
+ * overshoots — head ranks always flatten — so those four entries are tapered
+ * and are the least certain part of the curve.
+ */
+const ES_ANCHORS: Anchor[] = [
+  [1, 450], [5, 220], [10, 150], [50, 60],
+  [100, 42.4], [500, 11.4], [1_000, 6.52], [5_000, 1.76],
+  [10_000, 1.0], [25_000, 0.47], [50_000, 0.27], [100_000, 0.154],
+  [200_000, 0.087], [334_200, 0.0575], [500_000, 0.0414],
+  [1_000_000, 0.0236], [2_000_000, 0.0134], [4_000_000, 0.0076],
+];
+
+/** Storefronts with a curve of their own, in that store's own units. */
+const MARKET_ANCHORS: Partial<Record<MarketplaceId, Anchor[]>> = {
+  es: ES_ANCHORS,
+};
+
+/**
  * Relative size of each storefront versus Amazon.com. A rank of 10,000 in a
  * small store represents far fewer units than the same rank in the US.
  */
@@ -68,6 +95,14 @@ export function salesPerDay(
   calibration = 1,
 ): number | null {
   if (!bsr || bsr <= 0 || !Number.isFinite(bsr)) return null;
+
+  // A storefront with its own fitted curve is already in local units, so the
+  // market-size factor must not be applied on top of it.
+  const own = format === "kindle" ? undefined : MARKET_ANCHORS[marketplace];
+  if (own) {
+    return Math.max(0, Math.round(interpolate(own, bsr) * (calibration || 1) * 1000) / 1000);
+  }
+
   const anchors = format === "kindle" ? KINDLE_ANCHORS : PRINT_ANCHORS;
   const base = interpolate(anchors, bsr);
   const scaled = base * (MARKET_FACTOR[marketplace] ?? 0.05) * (calibration || 1);
@@ -122,8 +157,25 @@ export function calibrationFor(settings: AppSettings, marketplace: MarketplaceId
  * Multiplier that would make the curve match a known figure: divide the sales
  * the owner actually makes by what the uncalibrated curve predicts.
  */
-export function suggestCalibration(samples: Array<{ actualSalesPerMonth: number; rawEstimate: number }>): number | null {
+export function suggestCalibration(
+  samples: Array<{
+    actualSalesPerMonth: number;
+    rawEstimate: number;
+    bsr?: number;
+    format?: BookFormat;
+    marketplace?: MarketplaceId;
+  }>,
+): number | null {
   const ratios = samples
+    .map((s) => {
+      // Prefer what the curve says today: a stored estimate goes stale the
+      // moment the curve is refitted, and would silently keep correcting for
+      // an error that no longer exists.
+      const live = s.bsr && s.format && s.marketplace
+        ? salesPerMonth(s.bsr, s.format, s.marketplace, 1)
+        : null;
+      return { ...s, rawEstimate: live ?? s.rawEstimate };
+    })
     .filter((s) => s.rawEstimate > 0 && s.actualSalesPerMonth > 0)
     .map((s) => s.actualSalesPerMonth / s.rawEstimate)
     .sort((a, b) => a - b);
