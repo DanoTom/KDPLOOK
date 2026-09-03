@@ -24,7 +24,7 @@ import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
 import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
 import { keywordOpportunity } from "../shared/analytics/keyword";
-import { buildProbes, relatedSeeds } from "../worker/amazon/suggest";
+import { MAX_PROBES_PER_GROUP, PROBE_GROUPS, buildProbes, relatedSeeds } from "../worker/amazon/suggest";
 import type { AppSettings, BookRecord } from "../shared/types";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -680,6 +680,20 @@ console.log("\nfiabilidad de la estimacion");
   check("ni tres muestras sin ranking",
     readSeries([point(9, null), point(5, null), point(1, null)]), null);
 
+  // A listing whose review count could not be read is not a listing with zero
+  // reviews: treating the two alike downgraded a sound estimate to a ceiling
+  // whenever the parser missed the review block.
+  const unknownReviews = assessEstimate({ bsr: 8_000, ageMonths: 10, reviews: null, salesPerMonth: 60 });
+  check("resenas ilegibles no son cero resenas", unknownReviews.level, "solida");
+  check("cero resenas de verdad si contradicen",
+    assessEstimate({ bsr: 8_000, ageMonths: 10, reviews: 0, salesPerMonth: 60 }).level, "techo");
+
+  // The window is the one the ranks cover, not the one the watchlist covers.
+  const lateRanks = [point(30, null), point(20, null), point(9, 40_000), point(5, 44_000), point(1, 42_000)];
+  const window = readSeries(lateRanks);
+  check("el periodo cuenta solo las muestras con ranking", window?.spanDays, 8);
+  check("y las cuenta bien", window?.samples, 3);
+
   // No rank at all: there is nothing to derive sales from, and it says so.
   const noRank = assessEstimate({ bsr: null, ageMonths: 20, reviews: 5, salesPerMonth: null });
   check("sin BSR no hay estimacion", noRank.level, "techo");
@@ -745,6 +759,34 @@ console.log("\nrutas cercanas a una frase");
 
   check("el grupo related usa esas mismas rutas", buildProbes("agenda psicologo", "related", es), near);
   check("una semilla vacia no genera sondas", relatedSeeds("   ", es), []);
+
+  // A phrase that already carries its connector must not be given another, and
+  // the connector alone is not a query: "para" completes into everything.
+  const already = relatedSeeds("agenda para psicologos", es);
+  check("no duplica el conector", already.some((p) => / (para|de|con) (para|de|con)\b/.test(p)), false);
+  check("no sondea el conector suelto", already.includes("para"), false);
+  truthy("y conserva la ruta util", already.includes("agenda para"));
+  check("en ingles tampoco", relatedSeeds("planner for teachers", getMarketplace("com")).includes("for"), false);
+
+  // The plural is the likeliest real answer, so the cap must never drop it.
+  const long = relatedSeeds("libro actividades ninos pequeno especial", es);
+  truthy("el plural sobrevive al recorte", long.includes("libro actividades ninos pequeno especiales"));
+}
+
+console.log("\npresupuesto de subpeticiones");
+{
+  // The free plan allows 50 subrequests per invocation and each probe can cost
+  // up to three upstream calls, so no group may hold more than the budget
+  // divides into. Getting this wrong makes Cloudflare kill the whole request.
+  const worst = { group: "", probes: 0 };
+  for (const market of ["es", "com", "de", "fr", "it", "com.br"] as const) {
+    for (const group of PROBE_GROUPS) {
+      const count = buildProbes("agenda escolar", group, getMarketplace(market)).length;
+      if (count > worst.probes) { worst.probes = count; worst.group = `${group}/${market}`; }
+    }
+  }
+  truthy(`ningun grupo pasa del tope (${worst.group}: ${worst.probes})`, worst.probes <= MAX_PROBES_PER_GROUP);
+  truthy("y el peor caso cabe en 50 subpeticiones", worst.probes * 3 <= 44);
 }
 
 console.log("\noportunidad de una keyword");

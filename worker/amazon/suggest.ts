@@ -18,6 +18,17 @@ export const QUICK_GROUPS: ProbeGroup[] = ["base", "alphabetA", "alphabetB"];
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz".split("");
 const DIGITS = "0123456789".split("");
 
+/**
+ * The free plan allows 50 subrequests per invocation, and the route also spends
+ * a few on D1 (settings, the fetch log). Rather than trusting a comment to stay
+ * true, both halves of the product are enforced: no probe may cost more than
+ * MAX_CALLS_PER_PROBE upstream calls, and no group may hold more probes than
+ * the remaining budget divides into.
+ */
+const SUBREQUEST_BUDGET = 44;
+const MAX_CALLS_PER_PROBE = 3;
+export const MAX_PROBES_PER_GROUP = Math.floor(SUBREQUEST_BUDGET / MAX_CALLS_PER_PROBE);
+
 /** Modifier words per storefront language, used to widen the seed. */
 const MODIFIERS: Record<string, { questions: string[]; suffixes: string[]; prefixes: string[]; connectors: string[] }> = {
   en: {
@@ -98,32 +109,48 @@ export function relatedSeeds(seed: string, marketplace: Marketplace): string[] {
 
   const lang = marketplace.language.split("_")[0];
   const mods = modifiersFor(marketplace);
+  const joiners = new Set(mods.connectors);
+  // The words carrying the meaning. "agenda para psicologos" is a two-idea
+  // phrase: probing "para" on its own would return everything else that starts
+  // with it, and those completions have nothing to do with the seed.
+  const content = words.filter((word) => !joiners.has(word) && word.length > 2);
   const out = new Set<string>();
 
-  if (words.length === 1) {
-    out.add(pluralise(words[0], lang));
-    for (const suffix of mods.suffixes.slice(0, 6)) out.add(`${words[0]} ${suffix}`);
-  } else {
-    const head = words.slice(0, -1).join(" ");
-    const tail = words[words.length - 1];
+  const add = (phrase: string) => {
+    const clean = phrase.trim().replace(/\s+/g, " ");
+    if (clean.length < 3 || joiners.has(clean)) return;
+    out.add(clean);
+  };
 
-    // The broad neighbourhoods this phrase sits between.
-    for (const word of words) if (word.length > 2) out.add(word);
-    // Order changes the answer entirely, so ask the other way round too.
-    out.add([tail, ...words.slice(0, -1)].join(" "));
-    out.add(head);
-    out.add(words.slice(1).join(" "));
-    // "<head> para" is the strongest probe of the set: it returns every ending
-    // shoppers actually attach to the phrase, not just the one that was typed.
-    for (const conn of mods.connectors) out.add(`${head} ${conn}`);
-    for (const conn of mods.connectors) out.add(`${head} ${conn} ${tail}`);
-    out.add(`${head} ${pluralise(tail, lang)}`);
+  if (content.length <= 1) {
+    const word = content[0] ?? words[0];
+    add(pluralise(word, lang));
+    for (const suffix of mods.suffixes.slice(0, 6)) add(`${word} ${suffix}`);
+  } else {
+    const tail = words[words.length - 1];
+    const head = words.slice(0, -1).join(" ");
+    // A seed that already carries its connector must not be given another:
+    // "agenda para" + "para" is a phrase nobody has ever typed.
+    const headAlreadyJoined = joiners.has(words[words.length - 2] ?? "");
+
+    // The plural goes first. On a phrase that came back empty it is the single
+    // likeliest real answer, so the cap below must never be what drops it.
+    add(`${head} ${pluralise(tail, lang)}`);
+    for (const word of content) add(word);
+    add([content[content.length - 1], ...content.slice(0, -1)].join(" "));
+    add(head);
+    add(words.slice(1).join(" "));
+
+    if (!headAlreadyJoined) {
+      // "<head> <conn>" is the most productive probe of the set: it returns
+      // every ending shoppers attach to the phrase, not just the one typed.
+      for (const conn of mods.connectors) add(`${head} ${conn}`);
+      for (const conn of mods.connectors) add(`${head} ${conn} ${tail}`);
+    }
   }
 
   out.delete(base);
-  out.delete("");
-  // Capped for the subrequest budget: each probe can cost up to three calls.
-  return Array.from(out).slice(0, 12);
+  return Array.from(out).slice(0, MAX_PROBES_PER_GROUP);
 }
 
 /** The probe list for one group. Kept small so a request stays within the
@@ -132,6 +159,17 @@ export function buildProbes(seed: string, group: ProbeGroup, marketplace: Market
   const s = seed.trim().toLowerCase();
   if (!s) return [];
   const mods = modifiersFor(marketplace);
+  // Every branch is capped: the English suffix list alone is long enough to
+  // push an invocation past the subrequest budget.
+  return probesFor(s, group, marketplace, mods).slice(0, MAX_PROBES_PER_GROUP);
+}
+
+function probesFor(
+  s: string,
+  group: ProbeGroup,
+  marketplace: Marketplace,
+  mods: ReturnType<typeof modifiersFor>,
+): string[] {
   switch (group) {
     case "base":
       return [s, `${s} `];
@@ -156,7 +194,14 @@ interface SuggestionApiResponse {
   suggestions?: Array<{ value?: string; suggType?: string; ghost?: boolean }>;
 }
 
-/** Query Amazon's own search-box autocomplete for one prefix. */
+/**
+ * Query Amazon's own search-box autocomplete for one prefix.
+ *
+ * Three sources are tried in order, and the call counter is the point: the
+ * total is hard-capped at MAX_CALLS_PER_PROBE, because `attempts` is a number
+ * of tries rather than one call, and a retry on the first source used to be
+ * able to push the whole invocation past the free plan's subrequest limit.
+ */
 export async function fetchSuggestions(
   env: Env,
   settings: AppSettings,
@@ -164,41 +209,43 @@ export async function fetchSuggestions(
   prefix: string,
   department: "print" | "kindle" | "all",
 ): Promise<ProbeOutcome> {
-  // Try the shared host first; only if it yields nothing, try the storefront's
-  // own. One host being wrong should degrade the result, never empty it.
+  let calls = 0;
   let reached = false;
-  for (const variant of ["shared", "regional"] as const) {
-    const outcome = await fetchPage(env, settings, suggestUrl(marketplace, prefix, department, variant), {
+
+  const ask = async (url: string, attempts: number): Promise<string[] | null> => {
+    const budget = Math.min(attempts, MAX_CALLS_PER_PROBE - calls);
+    if (budget <= 0) return null;
+    const before = calls;
+    const outcome = await fetchPage(env, settings, url, {
       language: marketplace.language,
       json: true,
-      attempts: variant === "shared" ? 2 : 1,
+      attempts: budget,
       timeoutMs: 9000,
     });
-    if (!outcome.ok) continue;
+    // fetchPage retries internally, so charge the whole budget it was given:
+    // assuming one call is how the cap was breached in the first place.
+    calls = before + budget;
+    if (!outcome.ok) return null;
     reached = true;
-    const values = readSuggestions(outcome.body);
-    if (values.length) return { reached: true, values };
-  }
+    return readSuggestions(outcome.body);
+  };
+
+  // The shared host first; only if it yields nothing, the storefront's own.
+  // One host being wrong should degrade the result, never empty it.
+  const shared = await ask(suggestUrl(marketplace, prefix, department, "shared"), 2);
+  if (shared?.length) return { reached: true, values: shared };
+
+  const regional = await ask(suggestUrl(marketplace, prefix, department, "regional"), 1);
+  if (regional?.length) return { reached: true, values: regional };
 
   // Narrowing to a department can cost the localisation: a books alias the
   // service does not recognise for this storefront falls back to the generic
-  // English set, or to nothing. The unaliased search is the same question asked
-  // without that risk, so it is worth one call before giving up.
-  //
-  // Only when Amazon answered and had nothing — a refusal already spent the
-  // retry budget above, and this must not push an invocation past the free
-  // plan's 50 subrequests.
+  // English set, or to nothing. Asking without it is the same question without
+  // that risk — but only when Amazon answered and had nothing, since a refusal
+  // has already spent the budget above.
   if (reached && department !== "all") {
-    const outcome = await fetchPage(env, settings, suggestUrl(marketplace, prefix, "all", "shared"), {
-      language: marketplace.language,
-      json: true,
-      attempts: 1,
-      timeoutMs: 9000,
-    });
-    if (outcome.ok) {
-      const values = readSuggestions(outcome.body);
-      if (values.length) return { reached: true, values };
-    }
+    const unaliased = await ask(suggestUrl(marketplace, prefix, "all", "shared"), 1);
+    if (unaliased?.length) return { reached: true, values: unaliased };
   }
 
   // `reached` is the difference between "Amazon is turning us away" and "Amazon

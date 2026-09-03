@@ -453,6 +453,7 @@ function RankCheck({ asin, title, marketplace, format }: {
                       <td className="num">
                         {row.error ? <Badge tone="warn">{row.error}</Badge>
                           : row.found ? <Badge tone={row.position !== null && row.position <= 16 ? "good" : "warn"}>#{row.position}</Badge>
+                          : row.scanned === 0 ? <Badge tone="warn">sin lista</Badge>
                           : row.indexed === false ? <Badge tone="bad">sin indexar</Badge>
                           : <Badge tone="bad">no aparece</Badge>}
                       </td>
@@ -464,6 +465,11 @@ function RankCheck({ asin, title, marketplace, format }: {
                           : row.found ? "Está indexado pero demasiado abajo para recibir clics."
                           : row.indexed === false
                             ? "Amazon no asocia tu libro con este término: buscándolo junto a tu título tampoco aparece. Es un problema de metadatos, no de ventas — revisa las 7 palabras clave, el título y el subtítulo en KDP."
+                          : row.scanned === 0
+                            // The plain search returned nothing to look through,
+                            // so there is no position to report — saying "below
+                            // rank 0" would read as a finding about the book.
+                            ? "Esa búsqueda no devolvió resultados, así que no hay ninguna lista en la que mirar. Prueba el departamento «Todo» o una variante de la frase."
                           : row.indexed === true
                             ? `Sí estás indexado —aparece al buscarlo junto a tu título—, pero por debajo del puesto ${row.scanned}. Las palabras clave están bien; lo que falta es historial de ventas para este término.`
                           : `No aparece en los ${row.scanned} primeros. O no estás indexado para este término, o estás muy por detrás.`}

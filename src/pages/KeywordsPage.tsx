@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeywordRecord } from "../../shared/types";
 import { api, type KeywordScoreDto } from "../api";
 import { Icon } from "../components/icons";
@@ -45,6 +45,11 @@ export function KeywordsPage() {
   // Where the exploration has been, so a dead end is one click from the last
   // place that had something in it.
   const [trail, setTrail] = useState<string[]>([]);
+  // Rows appear as groups come back, so a result can be clicked while its own
+  // expansion is still running. Every run carries a token; a run that is no
+  // longer the current one stops writing state instead of dropping its
+  // keywords under the next seed's name.
+  const runId = useRef(0);
   const [runs, setRuns] = useState<Array<{ id: string; seed: string; createdAt: number; count: number }>>([]);
   const [filter, setFilter] = useState("");
   const [minWords, setMinWords] = useState(0);
@@ -66,21 +71,24 @@ export function KeywordsPage() {
    * completes this phrase" — into a false alarm about being rate-limited.
    */
   async function runGroups(
+    token: number,
     seedText: string,
     groups: ProbeGroup[],
     merged: Map<string, KeywordRecord>,
     offset = 0,
     total = groups.length,
-  ): Promise<{ probes: number; answered: number; reachable: number; failed: string | null }> {
+  ): Promise<{ probes: number; answered: number; reachable: number; failed: string | null; stale: boolean }> {
     let probes = 0;
     let answered = 0;
     let reachable = 0;
 
     for (let index = 0; index < groups.length; index++) {
+      if (token !== runId.current) return { probes, answered, reachable, failed: null, stale: true };
       const group = groups[index];
       setProgress({ label: `Sondeando: ${GROUP_LABELS[group]}`, done: offset + index, total });
       try {
         const response = await api.expand({ seed: seedText, marketplace, group, department });
+        if (token !== runId.current) return { probes, answered, reachable, failed: null, stale: true };
         probes += response.probes;
         answered += response.answered;
         reachable += response.reachable ?? 0;
@@ -93,10 +101,14 @@ export function KeywordsPage() {
         }
         setKeywords(sortByDemand(merged));
       } catch (err) {
-        return { probes, answered, reachable, failed: err instanceof Error ? err.message : "Error al expandir" };
+        if (token !== runId.current) return { probes, answered, reachable, failed: null, stale: true };
+        return {
+          probes, answered, reachable, stale: false,
+          failed: err instanceof Error ? err.message : "Error al expandir",
+        };
       }
     }
-    return { probes, answered, reachable, failed: null };
+    return { probes, answered, reachable, failed: null, stale: false };
   }
 
   /**
@@ -125,10 +137,11 @@ export function KeywordsPage() {
       return index >= 0 ? current.slice(0, index + 1) : [...current, trimmed];
     });
 
+    const token = ++runId.current;
     const groups: ProbeGroup[] = mode === "quick" ? QUICK_GROUPS : DEEP_GROUPS;
     const merged = new Map<string, KeywordRecord>();
-    // One extra step in the bar for the fallback that may or may not run.
-    const first = await runGroups(trimmed, groups, merged, 0, groups.length + 1);
+    const first = await runGroups(token, trimmed, groups, merged);
+    if (first.stale) return;
 
     if (first.failed) {
       setProgress(null);
@@ -140,10 +153,16 @@ export function KeywordsPage() {
     // but the answer: autocomplete matches a prefix, so it only knows about
     // these exact words in this exact order. The neighbourhood is where the
     // phrasing people actually type lives.
-    if (!merged.size && first.reachable > 0) {
-      const rescue = await runGroups(trimmed, ["related"], merged, groups.length, groups.length + 1);
+    //
+    // Deep mode already swept it, so re-running would spend a second round of
+    // probes to learn the same nothing.
+    if (!merged.size && first.reachable > 0 && !groups.includes("related")) {
+      const rescue = await runGroups(token, trimmed, ["related"], merged, groups.length, groups.length + 1);
+      if (rescue.stale) return;
       setProgress(null);
-      if (merged.size) {
+      if (rescue.failed) {
+        setError(rescue.failed);
+      } else if (merged.size) {
         setNote(
           `Amazon no completa «${trimmed}»: nadie la escribe así. Estas ${merged.size} salen de rutas cercanas ` +
           `—la frase al revés, en plural y con «${connectorHint(marketplace)}»—, que es como sí la teclean.`,
@@ -160,6 +179,13 @@ export function KeywordsPage() {
     }
 
     setProgress(null);
+    if (!merged.size && first.reachable > 0) {
+      setError(
+        `Amazon respondió pero no sugiere nada para «${trimmed}» ni para sus rutas cercanas. ` +
+        `No es un bloqueo: es que esa frase no se busca. Prueba una semilla más corta y baja desde ahí.`,
+      );
+      return;
+    }
     if (first.probes > 0 && first.reachable === 0) {
       setError("Amazon no respondió a ninguna sonda. Puede estar limitando el autocompletado desde este servidor; espera unos minutos.");
     }
@@ -357,6 +383,7 @@ export function KeywordsPage() {
                   {index ? <span className="faint">›</span> : null}
                   <Button
                     size="sm" variant={step === seed ? "default" : "ghost"}
+                    disabled={Boolean(progress)}
                     onClick={() => void expand(step, "back")}
                   >
                     {step}
@@ -459,6 +486,7 @@ export function KeywordsPage() {
                             <Button
                               size="sm" variant="ghost" icon={<Icon.Tag size={14} />}
                               title="Usar esta frase como nueva semilla y seguir bajando"
+                              disabled={Boolean(progress)}
                               onClick={() => void expand(record.keyword, "drill")}
                             >
                               Explorar

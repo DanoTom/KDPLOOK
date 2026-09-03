@@ -72,7 +72,13 @@ export function readSeries(history: RankPoint[] | undefined): SustainedRead | nu
     .filter((bsr): bsr is number => typeof bsr === "number" && Number.isFinite(bsr) && bsr > 0);
   if (ranks.length < 3) return null;
 
-  const times = history.map((point) => point.capturedAt).filter((t) => Number.isFinite(t));
+  // The window the ranks actually cover, not the window the watchlist covers:
+  // samples taken before Amazon started publishing a rank would otherwise
+  // stretch "3 muestras en 30 días" out of three consecutive days.
+  const times = history
+    .filter((point) => typeof point.bsr === "number" && Number.isFinite(point.bsr) && point.bsr > 0)
+    .map((point) => point.capturedAt)
+    .filter((t) => Number.isFinite(t));
   const spanDays = times.length >= 2
     ? Math.round(((Math.max(...times) - Math.min(...times)) / DAY) * 10) / 10
     : 0;
@@ -139,8 +145,13 @@ export function assessEstimate(input: ReliabilityInput): EstimateReliability {
   // --- does the estimate square with the review history? ---------------------
   // A book selling what the curve claims would have collected reviews by now.
   // When it has none, the two figures cannot both be describing the same book.
+  //
+  // Strictly zero, never a null: the parser returns null both for a listing with
+  // no reviews and for one whose review markup it failed to read, and treating
+  // the second as the first would downgrade a sound estimate to a ceiling on the
+  // strength of a parsing miss.
   const sales = input.salesPerMonth;
-  if (age !== null && age >= LAUNCH_MONTHS && sales !== null && sales > 0 && (input.reviews ?? 0) === 0) {
+  if (age !== null && age >= LAUNCH_MONTHS && sales !== null && sales > 0 && input.reviews === 0) {
     const implied = Math.round(sales * Math.min(age, 12));
     if (implied >= 150) {
       raise("techo");
