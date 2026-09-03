@@ -14,6 +14,7 @@ const NAMED_ENTITIES: Record<string, string> = {
   ccedil: "ç", uuml: "ü", ouml: "ö", auml: "ä", szlig: "ß",
   ntilde: "ñ", aacute: "á", iacute: "í", oacute: "ó", uacute: "ú",
   reg: "®", copy: "©", trade: "™", deg: "°", euro: "€", pound: "£", yen: "¥",
+  rlm: "", lrm: "", zwj: "", zwnj: "", shy: "",
 };
 
 export function decodeEntities(input: string): string {

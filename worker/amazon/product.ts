@@ -148,6 +148,27 @@ function readRpiField(html: string, names: string[]): string | null {
  * `data-rpi-attribute-name="book_details-language"`, and reading the value
  * after that match yields fragments of markup rather than the field.
  */
+/**
+ * Turn a raw capture into a field value, or nothing at all.
+ *
+ * Amazon pads its detail separators with bidi control marks, and a strategy
+ * that misses can easily come back holding a fragment of markup. Returning
+ * null for those keeps a wrong value out of the UI: an honest dash is visibly
+ * missing data, whereas "&rlm; : &lrm; <" reads as if it were a publisher.
+ */
+function sanitizeFieldValue(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  const text = stripTags(raw)
+    .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+    .replace(/^[\s:.\u2013\u2014-]+/, "")
+    .replace(/[\s:]+$/, "")
+    .trim();
+  if (text.length < 2) return null;
+  // Leftover markup: a real value never carries these.
+  if (/[<>]|data-[a-z-]+=|rpi-attribute|a-list-item|&[a-z]{2,6};/i.test(text)) return null;
+  return text.slice(0, 220);
+}
+
 function findVisibleLabel(region: string, lowerRegion: string, label: string): number {
   const needle = label.toLowerCase();
   let from = 0;
@@ -168,22 +189,36 @@ function readDetailField(region: string, lowerRegion: string, labels: string[]):
     const window = region.slice(idx, idx + 900);
 
     // <th>Label</th><td>value</td>
-    const cell = /^[\s\S]{0,160}?<\/th>\s*<td[^>]*>([\s\S]{0,400}?)<\/td>/i.exec(window);
-    const fromCell = cell ? stripTags(cell[1]) : "";
-    if (fromCell) return fromCell.slice(0, 220);
+    const cell = /^[\s\S]{0,200}?<\/th>\s*<td[^>]*>([\s\S]{0,400}?)<\/td>/i.exec(window);
+    const fromCell = sanitizeFieldValue(cell?.[1]);
+    if (fromCell) return fromCell;
 
     // <span class="a-text-bold">Label : </span> <span>value</span>
-    const bullet = /^[\s\S]{0,160}?<\/span>\s*<span[^>]*>([\s\S]{0,400}?)<\/span>/i.exec(window);
-    const fromBullet = bullet ? stripTags(bullet[1]) : "";
-    if (fromBullet) return fromBullet.slice(0, 220);
+    const bullet = /^[\s\S]{0,200}?<\/span>\s*<span[^>]*>([\s\S]{0,400}?)<\/span>/i.exec(window);
+    const fromBullet = sanitizeFieldValue(bullet?.[1]);
+    if (fromBullet) return fromBullet;
 
-    // Last resort for unknown markup: take the text right after the label and
-    // cut it at the first tag boundary so it cannot run into the next field.
-    const plain = stripTags(window.slice(0, window.indexOf("<", label.length) + 1 || 300));
-    const after = plain.slice(label.length).replace(/^[\s:\u200e\u200f]+/, "").trim();
-    if (after) return after.slice(0, 220);
+    // Anything else: the first real text node after the label's own element.
+    // Amazon wraps values in whatever container the current layout uses, so
+    // rather than guess the tag we skip the label's markup and take the next
+    // piece of text that survives sanitising.
+    const labelEnd = window.indexOf("<", label.length);
+    if (labelEnd >= 0) {
+      for (const chunk of window.slice(labelEnd).split(/<[^>]*>/)) {
+        const value = sanitizeFieldValue(chunk);
+        if (value) return value;
+      }
+    }
   }
   return null;
+}
+
+/** Strip the "(See Top 100 in Books)" link text, which mimics a rank phrase. */
+function cleanRankText(text: string): string {
+  return text
+    .replace(/\(\s*(?:see|ver|voir|siehe|vedi|veja)[^)]*\)/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractBsr(html: string, lowerHtml: string, detail: string): { bsr: number | null; ranks: CategoryRank[] } {
@@ -196,27 +231,39 @@ function extractBsr(html: string, lowerHtml: string, detail: string): { bsr: num
   if (!block) block = regionAroundCI(html, lowerHtml, BSR_LABELS, 0, 2400);
   if (!block) return { bsr: null, ranks: [] };
 
-  const text = stripTags(block)
-    // "(See Top 100 in Books)" reads like a rank phrase but is navigation.
-    .replace(/\(\s*(?:see|ver|voir|siehe|vedi|veja)[^)]*\)/gi, " ")
-    .replace(/\s+/g, " ");
+  // Each rank looks like "#3,024 in Books" ("n.º 3.024 en Libros",
+  // "Nr. 3.024 in Bücher"), and on some storefronts the store-wide one arrives
+  // with no "#" at all ("142,905 in Books").
+  //
+  // Turning every tag into a line break first is what makes this reliable:
+  // each rank then sits on its own line, so a category name is bounded by the
+  // element that holds it. Matching across the flattened text instead let the
+  // final category swallow whatever section came next on the page.
+  const lines = decodeEntities(block.replace(/<[^>]*>/g, "\n"))
+    .split("\n")
+    .map((line) => cleanRankText(line))
+    // "See Top 100 in Books" is navigation that reads exactly like a rank.
+    .filter((line) => line.length > 0 && !/^(?:see|ver|voir|siehe|vedi|veja)\b/i.test(line));
 
-  // "#3,024 in Books", "n.º 3.024 en Libros", "Nr. 3.024 in Bücher" — and on some
-  // storefronts the store-wide rank arrives with no "#" at all ("142,905 in Books").
-  const rankRe = /(?:#|n\.?\s?[ºo°]\s?|nr\.?\s?)?\s*([\d][\d.,\s]{0,12})\s+(?:in|en|dans|nella|nei|na|em|i)\s+([^#\n]{2,70}?)(?=\s*(?:#|n\.?\s?[ºo°]\s|nr\.?\s|$))/gi;
+  const rankRe = /(?:#|n\.?\s?[ºo°]\s?|nr\.?\s?)?\s*([\d][\d.,\s]{0,12})\s+(?:in|en|dans|nella|nei|na|em|i)\s+(.{2,80}?)\s*$/i;
+
   const ranks: CategoryRank[] = [];
   const seen = new Set<string>();
-  let m: RegExpExecArray | null;
-  while ((m = rankRe.exec(text)) !== null) {
+
+  for (const line of lines) {
+    const m = rankRe.exec(line);
+    if (!m) continue;
     const rank = parseInteger(m[1]);
-    const name = decodeEntities(m[2]).replace(/\s+/g, " ").replace(/[.,;:]\s*$/, "").trim();
-    if (!rank || !name || rank >= 50_000_000) continue;
+    if (!rank || rank >= 50_000_000) continue;
+    const name = m[2].replace(/[\s(:;,.]+$/, "").trim();
+    if (name.length < 2) continue;
     const key = `${name.toLowerCase()}|${rank}`;
     if (seen.has(key)) continue;
     seen.add(key);
     ranks.push({ name, rank });
     if (ranks.length >= 8) break;
   }
+
   if (!ranks.length) return { bsr: null, ranks: [] };
   return { bsr: ranks[0].rank, ranks: ranks.slice(1) };
 }

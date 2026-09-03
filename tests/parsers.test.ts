@@ -153,6 +153,30 @@ console.log("\nficha de producto (widget rich product information)");
     .some((v) => v && /[<>"]|rpi-attribute|data-/.test(v)));
 }
 
+console.log("\nficha de producto (rpi parcial + vinetas con marcas bidi)");
+{
+  // Mirrors a live page: the RPI widget lacks the publisher, which therefore
+  // has to come from a detail bullet whose separator is padded with bidi
+  // marks, and the sales-rank list is followed by more page content.
+  const detail = parseProductPage(fixture("product-rpi-mixed.html"), "B0C1J5GRWQ");
+  check("editorial desde la vineta, sin marcas bidi", detail.publisher, "Independently published");
+  check("autopublicado", detail.selfPublished, true);
+  check("fecha desde el parentesis de la editorial", detail.publishedAt, "2023-04-12");
+  check("idioma desde rpi", detail.language, "English");
+  check("dimensiones desde rpi", detail.dimensions, "8.5 x 0.23 x 11 inches");
+  check("isbn desde la vineta", detail.isbn, "979-8391121701");
+  check("bsr general", detail.bsr, 407977);
+  // The final category is the one the old boundary rule dropped.
+  check("ambas subcategorias, incluida la ultima", detail.categoryRanks, [
+    { name: "Children's Music Books", rank: 2190 },
+    { name: "Children's Coloring Books", rank: 5014 },
+  ]);
+  check("resena en singular", detail.reviews, 1);
+  truthy("ningun campo arrastra marcado ni marcas bidi",
+    ![detail.publisher, detail.language, detail.dimensions, detail.isbn]
+      .some((v) => v && /[<>]|rlm|lrm|data-/.test(v)));
+}
+
 console.log("\ndeteccion de bloqueo");
 {
   const captcha =
