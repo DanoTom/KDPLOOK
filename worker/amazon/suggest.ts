@@ -179,6 +179,28 @@ export async function fetchSuggestions(
     const values = readSuggestions(outcome.body);
     if (values.length) return { reached: true, values };
   }
+
+  // Narrowing to a department can cost the localisation: a books alias the
+  // service does not recognise for this storefront falls back to the generic
+  // English set, or to nothing. The unaliased search is the same question asked
+  // without that risk, so it is worth one call before giving up.
+  //
+  // Only when Amazon answered and had nothing — a refusal already spent the
+  // retry budget above, and this must not push an invocation past the free
+  // plan's 50 subrequests.
+  if (reached && department !== "all") {
+    const outcome = await fetchPage(env, settings, suggestUrl(marketplace, prefix, "all", "shared"), {
+      language: marketplace.language,
+      json: true,
+      attempts: 1,
+      timeoutMs: 9000,
+    });
+    if (outcome.ok) {
+      const values = readSuggestions(outcome.body);
+      if (values.length) return { reached: true, values };
+    }
+  }
+
   // `reached` is the difference between "Amazon is turning us away" and "Amazon
   // answered and has nothing to suggest for this phrase". The second is a
   // finding about the market; reporting it as the first hides that.
