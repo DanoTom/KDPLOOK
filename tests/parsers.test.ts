@@ -25,6 +25,9 @@ import { isPublishableBook } from "../shared/analytics/book";
 import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content";
 import { analyseTitles } from "../shared/analytics/titles";
 import { discoverIdeas } from "../shared/analytics/discover";
+import {
+  HIDDEN_CATEGORY_SLOTS, categoryRequestEmail, readPlacements,
+} from "../shared/analytics/placement";
 import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
 import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
@@ -1536,6 +1539,43 @@ console.log("\nde donde salen las ideas");
 
   // Too short a list to tell a subniche from the shelf's own name.
   check("con una lista corta no opina", discoverIdeas(lista.slice(0, 4)).phrases.length, 0);
+}
+
+console.log("\nlas diez categorias");
+{
+  const c = (name: string, node: string, sales: number | null, read = 3) => ({
+    node, name, path: ["Libros", "Cocina", name],
+    url: `https://www.amazon.es/gp/bestsellers/books/${node}/`,
+    salesToNumber1: sales, bsrNumber1: sales === null ? null : 12_000, read,
+  });
+
+  const ranked = readPlacements([
+    c("Cocina general", "1", 240),
+    c("Mosaicos", "2", 8),
+    c("Sin leer", "3", null, 0),
+    c("Repostería", "4", 55),
+  ]);
+
+  check("el badge más barato primero", ranked[0].name, "Mosaicos");
+  check("y lo que no se pudo leer al final", ranked[3].name, "Sin leer");
+  check("menos de una venta al día es asequible", ranked[0].reach, "asequible");
+  check("varias al día ya no", ranked[1].reach, "exigente");
+  check("y muchas al día es de otro deporte", ranked[2].reach, "duro");
+  check("sin datos no se pronuncia", ranked[3].reach, null);
+  truthy("y dice por qué no", ranked[3].note.includes("no devolvió"));
+
+  // The message has to be sendable as it is: paths for the agent to type and
+  // links to settle which shelf is meant.
+  const email = categoryRequestEmail({
+    title: "Agenda para psicólogos", asin: "B0TEST12345", store: "amazon.es",
+    chosen: ranked.slice(0, 2),
+  });
+  truthy("el correo nombra el libro", email.includes("Agenda para psicólogos"));
+  truthy("y su ASIN", email.includes("B0TEST12345"));
+  truthy("y la tienda", email.includes("amazon.es"));
+  truthy("y la ruta completa de cada categoría", email.includes("Libros > Cocina > Mosaicos"));
+  truthy("y el enlace que la desambigua", email.includes("/gp/bestsellers/books/2/"));
+  check("son ocho las que se pueden pedir", HIDDEN_CATEGORY_SLOTS, 8);
 }
 
 console.log(`\n${passed} pruebas superadas, ${failed} fallidas\n`);

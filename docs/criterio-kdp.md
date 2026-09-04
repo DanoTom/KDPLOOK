@@ -479,12 +479,54 @@ Y la caja del panel de inicio ya no manda al laboratorio de keywords cuando
 dices que no sabes por dónde empezar: el laboratorio también necesita una
 frase, así que las dos mitades de esa caja llevaban al mismo sitio.
 
+## Las diez categorías (sept. 2026)
+
+Al publicar eliges dos. Soporte añade hasta **ocho más** si se lo pides con las
+rutas exactas, y cada una es otra lista de más vendidos donde puede caer el
+distintivo naranja. Es la única pantalla de la app que saca dinero de un libro
+**ya escrito**: sin libro nuevo y sin keyword nueva.
+
+Se automatiza porque la elección es una **medición**, no un gusto: las ocho
+buenas son aquellas cuyo #1 vende menos, y leer eso a mano son cien páginas.
+
+### Cómo mide
+
+Por cada subcategoría se leen **solo los tres primeros**. El listón del badge es
+lo que hace el #1, así que tres libros compran la respuesta con dos peticiones
+en vez de once, y veinte subcategorías caben en el tiempo de un café.
+
+La dificultad no se recalcula aquí: sale de `summariseCategory`, que ya estaba
+calibrada, para que el listón de esta pantalla y el de la de categorías no
+puedan ser dos números distintos.
+
+### Las bandas, y de dónde salen
+
+No son números nuevos. Toda la app gira sobre «un libro que vende más o menos
+uno al día», que es el rango que los criterios de entrada llaman demanda
+demostrada. Aplicado aquí se lee solo:
+
+| | El #1 vende | Lectura |
+|---|---|---|
+| **Asequible** | < 1 al día | Un lanzamiento con empuje puede pasarle |
+| **Exigente** | 1–3 al día | Se puede, pero no por accidente |
+| **Duro** | > 3 al día | El badge es de alguien que vive de esto |
+
+### Dos avisos que están en la pantalla, no en la letra pequeña
+
+- **Un badge barato no es una categoría que venda**, es una categoría tranquila.
+  El distintivo sigue mereciendo la pena porque viaja con la ficha, pero es
+  prueba social, no visitas.
+- **Pide solo categorías donde el libro encaje de verdad.** Amazon las revisa, y
+  colocarlo donde no pinta nada es la vía rápida a que lo quiten de todas.
+
+### Un fallo que solo se vio renderizando
+
+El error del paso 1 (ASIN mal) se borraba solo al tocar el paso 2, así que la
+pantalla se quedaba sin generar el correo y sin nada que explicara por qué. Cada
+paso guarda ahora su propia queja hasta que se reintenta ese paso.
+
 ### Lo que sigue pendiente
 
-- **Las 10 categorías**: siguen existiendo en 2026, pero por ticket a soporte,
-  no desde el panel. La función útil sería extraer los IDs de las 8
-  subcategorías menos competidas donde los rivales tienen el badge, y generar
-  el correo listo para enviar.
 - **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,
   CVR ≥ 10 %, 10–15 reseñas antes del día 5, no tocar nada antes de 1.000
   impresiones). CTR y CVR viven en la consola de Ads, que esta app no lee: solo
