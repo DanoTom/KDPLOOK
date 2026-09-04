@@ -141,15 +141,25 @@ app.post("/api/settings/reset", async (c) => c.json(await saveSettings(c.env, DE
 // same code the fetched path uses.
 // ---------------------------------------------------------------------------
 
-/** Only the storefronts, and only for this endpoint. */
+/**
+ * Only the storefronts, and only for this endpoint.
+ *
+ * An unknown origin gets no allow header at all rather than a wildcard: the
+ * token is what authorises a capture, but there is no reason to invite any
+ * page on the web to try one. The app's own pages are same-origin and never
+ * consult this.
+ */
 function captureCors(origin: string | null): Record<string, string> {
-  const allowed = origin && /^https:\/\/(www\.)?amazon\.[a-z.]+$/i.test(origin) ? origin : "*";
-  return {
-    "Access-Control-Allow-Origin": allowed,
+  const headers: Record<string, string> = {
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
   };
+  if (origin && /^https:\/\/(www\.)?amazon\.[a-z]{2,3}(\.[a-z]{2})?$/i.test(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
 }
 
 app.options("/api/capture", (c) => new Response(null, { status: 204, headers: captureCors(c.req.header("Origin") ?? null) }));
