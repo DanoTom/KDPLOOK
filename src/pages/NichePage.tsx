@@ -12,6 +12,7 @@ import { buildEntryPlan } from "../../shared/analytics/entry";
 import { reviewExpertise } from "../../shared/analytics/checklist";
 import { monthNames, seasonInsight } from "../../shared/analytics/season";
 import { findAngles } from "../../shared/analytics/angles";
+import { isPublishableBook } from "../../shared/analytics/book";
 import { useNicheScan, type Department } from "../lib/scan";
 import { Link, useRoute } from "../router";
 import { useApp, useSettings } from "../state";
@@ -104,6 +105,7 @@ export function NichePage() {
         paginas: book.pages ?? "",
         editorial: book.publisher ?? "",
         autopublicado: book.selfPublished === null ? "" : book.selfPublished ? "si" : "no",
+        es_libro_kdp: isPublishableBook(book) ? "si" : "no",
         publicado: book.publishedAt ?? "",
         batible: book.weakness ?? "",
         url: book.url,

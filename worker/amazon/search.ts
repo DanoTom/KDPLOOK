@@ -156,10 +156,20 @@ function cleanByline(text: string): string | null {
     .replace(/\s*,\s*et al\.?$/i, "")
     .replace(/\s*\(author\)|\s*\(autor(?:a)?\)/i, "")
     .trim();
-  // Drop rows that are clearly not a byline (dates, prices, format labels).
+  // Drop rows that are clearly not a byline. The byline slot on a search card
+  // is where Amazon also parks promotions, language labels, binding names and
+  // whole product descriptions, and any of those read as an author downstream.
   if (!out || out.length < 2 || out.length > 120) return null;
   if (/^\d/.test(out) && /\d{4}/.test(out)) return null;
-  if (/^(kindle|paperback|hardcover|tapa|audible)/i.test(out)) return null;
+  if (/^(kindle|paperback|hardcover|tapa|audible|encuadernaci[oó]n|broch[eé]|taschenbuch|copertina)/i.test(out)) return null;
+  // "Ahorra 5 % al comprar 4 de esta selección"
+  if (/%/.test(out) || /^(ahorra|save|économisez|economisez|risparmia|spare|economize)\b/i.test(out)) return null;
+  // "Edición en Italiano", "Portuguese Edition"
+  if (/^(edici[oó]n en |[ée]dition en |edizione in |ausgabe )/i.test(out)) return null;
+  if (/\b(edition|edizione|ausgabe)$/i.test(out)) return null;
+  // "Semana Vista Septiembre 2026 – Agosto 2027 (12 meses). Agenda para…" — a
+  // description, not a name. No author is eight words long.
+  if (out.split(/\s+/).length > 8) return null;
   return out;
 }
 

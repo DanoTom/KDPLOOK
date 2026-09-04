@@ -2,7 +2,8 @@ import type {
   AppSettings, BookRecord, MarketplaceId, NicheSummary, Signal, Verdict,
 } from "../types";
 import { calibrationFor, salesPerMonth } from "./bsr";
-import { RESULTS_GREEN, RESULTS_LIMIT } from "./checklist";
+import { RESULTS_GREEN, RESULTS_LIMIT, reviewExpertise } from "./checklist";
+import { isPublishableBook } from "./book";
 import { estimateRoyaltyPerUnit } from "./royalty";
 import { currencySymbolFor } from "../currency";
 
@@ -143,7 +144,11 @@ export interface ScoreOptions {
 export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSummary {
   const { settings, marketplace, keyword } = opts;
   const organic = items.filter((b) => !b.sponsored);
-  const pool = organic.length ? organic : items;
+  const everything = organic.length ? organic : items;
+  // Stationery stays in the table — it is on the shelf and worth seeing — but
+  // out of every figure that describes the market for a publisher.
+  const nonBooks = everything.filter((b) => !isPublishableBook(b));
+  const pool = everything.filter(isPublishableBook);
   // The first page is what shoppers actually see, so scoring leans on it.
   const top = pool.slice(0, 20);
   const enriched = pool.filter((b) => b.enriched);
@@ -257,6 +262,32 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
 
   summary.signals = buildSignals(summary, settings, currencySymbolFor(marketplace));
   summary.verdict = buildVerdict(summary, settings);
+  // The entry criteria are the operator's own, shown on the same screen. A
+  // headline that reads "Excelente" while one of them fails is the app
+  // contradicting itself, and the gate is the one that gets acted on.
+  summary.verdict = capByGates(
+    summary.verdict,
+    reviewExpertise(items, { marketplace, totalResults: opts.totalResults, settings }),
+  );
+
+  // Stationery on page one is a finding, not noise to hide: it is shelf space a
+  // self-published book cannot take, whatever the rest of the numbers say.
+  if (nonBooks.length) {
+    const share = nonBooks.length / (pool.length + nonBooks.length);
+    summary.signals.push({
+      id: "nonbooks",
+      label: "No son libros KDP",
+      value: `${nonBooks.length} de ${pool.length + nonBooks.length}`,
+      tone: share >= 0.3 ? "bad" : "warn",
+      hint: "Agendas y cuadernos comerciales (Finocam, Kokonote…): sin páginas ni editorial en su ficha. Ocupan la primera página pero no son competencia que puedas desplazar, así que quedan fuera de las cifras del nicho.",
+    });
+    if (share >= 0.25) {
+      summary.verdict.reasoning.push(
+        `${nonBooks.length} de los ${pool.length + nonBooks.length} resultados son papelería comercial, no libros: ` +
+        `te quitan sitio en la primera página aunque no compitan contigo.`,
+      );
+    }
+  }
 
   // A book published weeks ago holds a rank that reflects its launch, not a
   // rhythm, so the curve reads it as selling more than it does. One such title
@@ -341,6 +372,50 @@ function buildSignals(s: NicheSummary, settings: AppSettings, currency: string):
   });
 
   return signals;
+}
+
+/** Verdict labels from best to worst, so a cap is a step down the list. */
+const VERDICT_ORDER: Array<Verdict["label"]> = ["Excelente", "Bueno", "Ajustado", "Difícil"];
+
+const VERDICT_TONE: Record<Verdict["label"], Verdict["tone"]> = {
+  "Excelente": "great", "Bueno": "good", "Ajustado": "mixed", "Difícil": "bad", "Sin datos": "unknown",
+};
+
+/**
+ * Hold the headline to what the entry criteria allow.
+ *
+ * The score weighs everything together and can come out warm on a niche the
+ * criteria reject outright — too many competing books, no proven demand, no
+ * beatable rival. Those are pass/fail conditions the publisher set, not
+ * ingredients, so a failed one lowers the verdict rather than being averaged
+ * away. It never raises one: a niche the gates like can still be a bad idea.
+ */
+function capByGates(verdict: Verdict, review: ReturnType<typeof reviewExpertise>): Verdict {
+  if (verdict.label === "Sin datos") return verdict;
+
+  const failed = review.gates.filter((gate) => gate.pass === false);
+  const severe = review.flags.filter((flag) => flag.severity === "alto");
+  if (!failed.length && !severe.length) return verdict;
+
+  // One failed gate holds it below "Excelente"; two below "Bueno"; all three
+  // leave nothing to recommend. A high-severity warning costs one step too.
+  const steps = Math.min(3, failed.length + (severe.length ? 1 : 0));
+  const current = VERDICT_ORDER.indexOf(verdict.label as Verdict["label"]);
+  const capped = VERDICT_ORDER[Math.min(VERDICT_ORDER.length - 1, Math.max(current, steps))];
+  if (capped === verdict.label) return verdict;
+
+  const reasons = failed.map((gate) => gate.label.toLowerCase());
+  if (severe.length) reasons.push(severe[0].label.toLowerCase());
+  return {
+    ...verdict,
+    label: capped,
+    tone: VERDICT_TONE[capped],
+    reasoning: [
+      ...verdict.reasoning,
+      `Rebajado de «${verdict.label}» a «${capped}»: no cumple ${reasons.join(" ni ")}. ` +
+      `Las cifras acompañan, pero tus propios criterios de entrada dicen que no.`,
+    ],
+  };
 }
 
 function buildVerdict(s: NicheSummary, settings: AppSettings): Verdict {

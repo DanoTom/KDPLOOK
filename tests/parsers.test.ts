@@ -20,6 +20,8 @@ import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost, solvePrintingRate
 import { buildEntryPlan } from "../shared/analytics/entry";
 import { summariseNiche } from "../shared/analytics/score";
 import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
+import { RESULTS_GREEN, RESULTS_LIMIT } from "../shared/analytics/checklist";
+import { isPublishableBook } from "../shared/analytics/book";
 import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
 import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
@@ -906,6 +908,95 @@ console.log("\noportunidad de una keyword");
 
   const quiet = keywordOpportunity({ demandProxy: 10, totalResults: 300, medianReviews: 5, lowReviewShare: 0.9 });
   truthy("un nicho vacio que nadie busca no es una oportunidad", (quiet?.score ?? 100) < (green?.score ?? 0));
+}
+
+console.log("\nlas constantes compartidas se cargan de verdad");
+{
+  // The competition curve is built at module load from the entry criteria's
+  // thresholds. When those two modules imported each other, whichever loaded
+  // second saw `undefined` and every score in that range came out NaN — with
+  // the bug depending on import order, so a passing suite proved nothing.
+  check("el umbral verde llega definido", RESULTS_GREEN, 1_000);
+  check("y el limite tambien", RESULTS_LIMIT, 2_000);
+
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const b = (i: number): BookRecord => ({
+    asin: `B0${String(i).padStart(8, "0")}`, title: `T${i}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 14, rating: 4.4, reviews: 12,
+    sponsored: false, kindleUnlimited: false, position: i, bsr: 30_000, categoryRanks: [], pages: 120,
+    publisher: "Independently published", publishedAt: null, language: null, isbn: null,
+    dimensions: null, selfPublished: true, enriched: true, salesPerMonth: 25,
+    revenuePerMonth: 90, royaltyPerUnit: 3.6, ageMonths: 20, weakness: 70,
+  });
+  const scored = summariseNiche(Array.from({ length: 16 }, (_, i) => b(i + 1)), {
+    keyword: "x", marketplace: "es", settings, totalResults: 400, resultsCountText: null,
+  });
+  truthy("y ninguna puntuacion sale NaN",
+    Number.isFinite(scored.competitionScore) && Number.isFinite(scored.opportunityScore));
+
+  // The helper both modules need now lives apart from both of them.
+  check("un libro con paginas es publicable", isPublishableBook(b(1)), true);
+  check("uno sin paginas ni editorial no lo es",
+    isPublishableBook({ ...b(2), pages: null, publisher: null }), false);
+  check("y sin leer la ficha no se prejuzga",
+    isPublishableBook({ ...b(3), pages: null, publisher: null, enriched: false }), true);
+}
+
+console.log("\npapeleria comercial fuera de las cifras del nicho");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const row = (position: number, over: Partial<BookRecord>): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `T${position}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 14, rating: null, reviews: null,
+    sponsored: false, kindleUnlimited: false, position, bsr: null, categoryRanks: [], pages: 150,
+    publisher: "Independently published", publishedAt: null, language: null, isbn: null,
+    dimensions: null, selfPublished: true, enriched: true, salesPerMonth: null,
+    revenuePerMonth: null, royaltyPerUnit: 4, ageMonths: 20, weakness: 70, ...over,
+  });
+
+  // The real page one for "agenda psicologo" on Amazon.es: eight KDP books
+  // selling a couple of copies a month, and six Finocam/Q Kalon diaries at
+  // hundreds or thousands. Averaged together the niche looks alive; it is not.
+  const libros = [2.3, 10.9, 2.1, 6.4, 21, 1.5, 2.2, 0.7]
+    .map((sales, i) => row(i + 1, { salesPerMonth: sales, revenuePerMonth: sales * 4 }));
+  const papeleria = [82.3, 442.7, 6055, 1135.4, 1681.1, 1135.4]
+    .map((sales, i) => row(i + 9, {
+      salesPerMonth: sales, revenuePerMonth: null, royaltyPerUnit: null,
+      // Stationery detail pages carry neither of these.
+      pages: null, publisher: null, selfPublished: null, formatLabel: "Otro", format: "other",
+    }));
+
+  const mixed = summariseNiche([...libros, ...papeleria], {
+    keyword: "agenda psicologo", marketplace: "es", settings, totalResults: 2100, resultsCountText: null,
+  });
+  // 2,25 de mediana real, que el resumen redondea a un decimal. Con la
+  // papelería dentro serían 15,95: siete veces más mercado del que hay.
+  check("la demanda sale de los libros, no de las agendas de Finocam", mixed.medianSalesPerMonth, 2.3);
+  check("y no cuenta la papeleria como analizada", mixed.analysed, 8);
+
+  const flagged = mixed.signals.find((sig) => sig.id === "nonbooks");
+  check("avisa de cuantos resultados no son libros", flagged?.value, "6 de 14");
+  truthy("y lo dice en el veredicto cuando son muchos",
+    mixed.verdict.reasoning.some((r) => r.includes("papelería comercial")));
+
+  // The entry plan must aim at a book, not at a diary selling 1.600 a month.
+  const plan = buildEntryPlan({
+    items: [...libros, ...papeleria], settings, marketplace: "es",
+    targetIncome: 300, reviewsPerHundredSales: 1,
+  });
+  truthy("el objetivo a desplazar es un libro", (plan.targetSalesPerMonth ?? 0) < 50);
+
+  // A niche with no stationery in it must not grow a warning it does not need.
+  const clean = summariseNiche(libros, {
+    keyword: "agenda psicologo", marketplace: "es", settings, totalResults: 2100, resultsCountText: null,
+  });
+  check("un nicho limpio no lleva el aviso", clean.signals.some((sig) => sig.id === "nonbooks"), false);
 }
 
 console.log("\nel recuento de resultados pesa en la competencia");

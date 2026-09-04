@@ -1,5 +1,6 @@
 import type { AppSettings, BookRecord, MarketplaceId } from "../types";
 import { computeRoyalty } from "./royalty";
+import { isPublishableBook } from "./book";
 
 /**
  * What it would take to enter a niche.
@@ -72,7 +73,12 @@ export function buildEntryPlan(input: EntryPlanInput): EntryPlan {
   const { items, settings, targetIncome, reviewsPerHundredSales } = input;
   const aim = input.aimPosition ?? 10;
 
-  const organic = items.filter((book) => !book.sponsored).sort((a, b) => a.position - b.position);
+  // Commercial stationery holds page-one slots but is not a title to displace:
+  // aiming at a Finocam diary selling 1.600 a month sets a bar that has nothing
+  // to do with publishing a book.
+  const organic = items
+    .filter((book) => !book.sponsored && isPublishableBook(book))
+    .sort((a, b) => a.position - b.position);
   const band = organic.filter((book) => book.position <= aim);
 
   // The listing to displace: the weakest one still holding a place in the band

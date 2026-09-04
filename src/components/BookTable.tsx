@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { BookRecord } from "../../shared/types";
+import { isPublishableBook } from "../../shared/analytics/book";
 import { fmtCompact, fmtDate, fmtInt, fmtMoney, fmtNum } from "../lib/format";
 import { Badge, IconButton } from "./ui";
 import { Icon } from "./icons";
@@ -112,7 +113,17 @@ export function BookTable({
                       ? <img className="cover" src={book.image} alt="" loading="lazy" />
                       : <div className="cover" />}
                     <div style={{ minWidth: 0 }}>
-                      <div className="book-title clamp-2" title={book.title}>{book.title}</div>
+                      <div className="book-title clamp-2" title={book.title}>
+                        {book.title}
+                        {/* It holds a slot on page one but is not a book to
+                            compete with, and its sales are out of every figure
+                            above — so it has to be visible which rows those are. */}
+                        {!isPublishableBook(book) ? (
+                          <span title="Sin páginas ni editorial en su ficha: es papelería comercial, no un libro publicable. Queda fuera de las cifras del nicho.">
+                            <Badge tone="warn">no es un libro</Badge>
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="book-meta truncate">
                         {book.author || "—"} · {book.formatLabel}
                         {book.selfPublished === true ? " · indie" : book.selfPublished === false ? " · editorial" : ""}

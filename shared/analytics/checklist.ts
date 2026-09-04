@@ -1,4 +1,5 @@
 import type { AppSettings, BookRecord, MarketplaceId } from "../types";
+import { isPublishableBook } from "./book";
 
 /**
  * The operator's own entry criteria, applied to a scanned niche.
@@ -71,7 +72,11 @@ export function reviewExpertise(
   const { marketplace, totalResults } = opts;
   const demandBsr = demandBsrFor(marketplace);
 
-  const organic = items.filter((b) => !b.sponsored).sort((a, b) => a.position - b.position);
+  // Commercial stationery is not a rival to beat: a Finocam diary at BSR 59
+  // would satisfy "demanda demostrada" while telling a publisher nothing.
+  const organic = items
+    .filter((b) => !b.sponsored && isPublishableBook(b))
+    .sort((a, b) => a.position - b.position);
   const page1 = organic.slice(0, 20);
   const enriched = page1.filter((b) => b.enriched && b.bsr !== null);
 
