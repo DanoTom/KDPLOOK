@@ -86,6 +86,11 @@ export function SettingsPage() {
 
             {settings.provider !== "direct" ? (
               <Alert tone="info">
+                Solo pasan por el proveedor las páginas de búsqueda y las fichas, que son las que Amazon
+                rechaza. El autocompletado del Laboratorio sigue yendo directo: nunca lo han bloqueado y
+                una expansión profunda dispara más de cien sondas, que se comerían la capa gratuita entera
+                en tres usos.
+                <br /><br />
                 La clave se guarda como <em>secret</em> de Cloudflare, nunca en la base de datos. Desde tu terminal:
                 <pre className="code" style={{ marginTop: 8, marginBottom: 0 }}>
 {settings.provider === "scraperapi" ? "npx wrangler secret put SCRAPER_API_KEY"

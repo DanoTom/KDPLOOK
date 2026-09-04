@@ -108,7 +108,20 @@ function wrapWithProvider(
   targetUrl: string,
   settings: AppSettings,
   env: Env,
+  /**
+   * Requests that Amazon answers happily from a datacenter, and which are far
+   * too numerous to pay for.
+   *
+   * The autocomplete endpoint has never been refused — a deep expansion fires
+   * over a hundred probes and they come back — while search and detail pages are
+   * exactly what gets blocked. A scraping provider's free tier is around a
+   * thousand calls a month, so routing the probes through it would spend the
+   * whole allowance in three expansions and leave nothing for the pages that
+   * actually need it.
+   */
+  cheap = false,
 ): { url: string; provider: string; direct: boolean } {
+  if (cheap) return { url: targetUrl, provider: "direct", direct: true };
   const encoded = encodeURIComponent(targetUrl);
   switch (settings.provider) {
     case "scraperapi": {
@@ -162,7 +175,7 @@ export async function fetchPage(
   const started = Date.now();
   const maxAttempts = Math.max(1, Math.min(4, opts.attempts ?? 3));
   const language = opts.language ?? "en_US";
-  const { url: requestUrl, provider } = wrapWithProvider(targetUrl, settings, env);
+  const { url: requestUrl, provider } = wrapWithProvider(targetUrl, settings, env, opts.json === true);
 
   let lastStatus = 0;
   let lastBody = "";
