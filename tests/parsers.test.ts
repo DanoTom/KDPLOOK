@@ -16,7 +16,7 @@ import { getMarketplace, suggestUrl } from "../worker/amazon/marketplaces";
 import { looksBlocked } from "../worker/amazon/fetcher";
 import { parseDate, parseInteger, parsePrice } from "../worker/amazon/html";
 import { calibrationFor, salesPerMonth, suggestCalibration } from "../shared/analytics/bsr";
-import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost } from "../shared/analytics/royalty";
+import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost, solvePrintingRates } from "../shared/analytics/royalty";
 import { buildEntryPlan } from "../shared/analytics/entry";
 import { summariseNiche } from "../shared/analytics/score";
 import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
@@ -906,6 +906,45 @@ console.log("\noportunidad de una keyword");
 
   const quiet = keywordOpportunity({ demandProxy: 10, totalResults: 300, medianReviews: 5, lowReviewShare: 0.9 });
   truthy("un nicho vacio que nadie busca no es una oportunidad", (quiet?.score ?? 100) < (green?.score ?? 0));
+}
+
+console.log("\ntarifas de impresion deducidas de libros propios");
+{
+  // Two books above the threshold fix the line exactly: the US table is
+  // 1.00 + 0.012/page, so a 200-page book costs 3.40 and a 300-page one 4.60.
+  const fit = solvePrintingRates([{ pages: 200, cost: 3.4 }, { pages: 300, cost: 4.6 }], 108);
+  check("deduce la parte fija", fit.overThresholdFixed, 1);
+  check("y el coste por pagina", fit.perPage, 0.012);
+  check("sin error con dos puntos exactos", fit.worstError, 0);
+
+  // A book at or below the threshold gives the flat fee directly.
+  const withFlat = solvePrintingRates(
+    [{ pages: 104, cost: 2.3 }, { pages: 200, cost: 3.4 }, { pages: 300, cost: 4.6 }], 108,
+  );
+  check("y la tarifa plana de los cortos", withFlat.flatFee, 2.3);
+  check("contando cuantos libros uso", [withFlat.usedShort, withFlat.usedLong], [1, 2]);
+
+  // Reproducing the fit through the real cost function closes the loop.
+  const solved = { ...DEFAULT_PRINTING_COSTS, overThresholdFixed: fit.overThresholdFixed ?? 1, bwRegularPerPage: fit.perPage ?? 0 };
+  check("y las tarifas deducidas reproducen el coste", printingCost(200, "paperback", "bw", "regular", solved), 3.4);
+
+  // Amazon rounds to the cent, so a fit over real figures carries a little
+  // error; it is reported rather than hidden.
+  const noisy = solvePrintingRates(
+    [{ pages: 150, cost: 2.8 }, { pages: 234, cost: 3.81 }, { pages: 320, cost: 4.84 }], 108,
+  );
+  truthy("con datos reales el error queda en centimos", (noisy.worstError ?? 9) < 0.05);
+
+  // One long book is a point, not a line.
+  const single = solvePrintingRates([{ pages: 200, cost: 3.4 }], 108);
+  check("un solo libro largo no basta", single.perPage, null);
+  check("dos libros con las mismas paginas tampoco",
+    solvePrintingRates([{ pages: 200, cost: 3.4 }, { pages: 200, cost: 3.4 }], 108).perPage, null);
+
+  // Numbers that contradict the model are refused rather than fitted.
+  check("un coste que baja con las paginas se rechaza",
+    solvePrintingRates([{ pages: 200, cost: 5 }, { pages: 400, cost: 3 }], 108).perPage, null);
+  check("y sin muestras no inventa nada", solvePrintingRates([], 108).flatFee, null);
 }
 
 console.log(`\n${passed} pruebas superadas, ${failed} fallidas\n`);

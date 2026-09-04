@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppSettings, CalibrationSample, MarketplaceId, PrintingCosts } from "../../shared/types";
 import { calibrationFor, salesPerMonth, suggestCalibration } from "../../shared/analytics/bsr";
+import { solvePrintingRates } from "../../shared/analytics/royalty";
 import { api } from "../api";
 import { Layout } from "../components/Layout";
 import { Alert, Badge, Button, Card, CardHead, Disclosure, Field, SegmentedControl, Switch } from "../components/ui";
@@ -147,12 +148,13 @@ export function SettingsPage() {
             title="Costes de impresión"
             note="Lo que Amazon te cobra por fabricar cada ejemplar. De aquí sale la regalía."
           />
-          <div className="card-pad">
+          <div className="card-pad stack">
             <Alert tone="warn">
-              Estas son las tarifas de <strong>Amazon EE.&nbsp;UU. en dólares</strong>. Si publicas en
-              Amazon.es, las regalías en euros que te muestre la app estarán desviadas hasta que las
-              cambies por las de tu tienda.
+              De fábrica son las tarifas de <strong>Amazon EE.&nbsp;UU. en dólares</strong>. Si publicas en
+              Amazon.es, las regalías en euros estarán desviadas hasta que pongas las tuyas — y no hace
+              falta que las busques: se deducen de dos libros tuyos, aquí debajo.
             </Alert>
+            <PrintingFromOwnBooks />
           </div>
           <div className="card-pad">
           <Disclosure summary="Ver y editar las tarifas" note="11 valores; Amazon los revisa de vez en cuando">
@@ -579,5 +581,113 @@ function CaptureCard() {
         )}
       </div>
     </Card>
+  );
+}
+
+
+/**
+ * Measure the printing rates instead of shipping a guess at them.
+ *
+ * Amazon charges a different table per storefront and per currency, and the
+ * defaults here are the US one in dollars — so a publisher on Amazon.es sees
+ * every royalty skewed. Their own KDP dashboard shows the printing cost of each
+ * of their books, and above the flat-fee threshold cost is a straight line in
+ * page count, so two books pin it down exactly. No lookup, no trusting a number
+ * this app cannot verify.
+ */
+function PrintingFromOwnBooks() {
+  const { settings, updateSettings, toast } = useApp();
+  const [rows, setRows] = useState([
+    { pages: "", cost: "" }, { pages: "", cost: "" }, { pages: "", cost: "" },
+  ]);
+
+  const threshold = settings?.printing.bwRegularFixedMaxPages ?? 108;
+  const samples = rows
+    .map((row) => ({ pages: Number(row.pages), cost: Number(row.cost) }))
+    .filter((row) => row.pages > 0 && row.cost > 0);
+  const solved = solvePrintingRates(samples, threshold);
+  const canApply = solved.perPage !== null || solved.flatFee !== null;
+
+  function edit(index: number, key: "pages" | "cost", value: string) {
+    setRows((current) => current.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
+  }
+
+  async function apply() {
+    if (!settings) return;
+    const printing = { ...settings.printing };
+    if (solved.flatFee !== null) printing.bwRegularFixed = solved.flatFee;
+    if (solved.perPage !== null) printing.bwRegularPerPage = solved.perPage;
+    if (solved.overThresholdFixed !== null) printing.overThresholdFixed = solved.overThresholdFixed;
+    await updateSettings({ printing });
+    toast("Tarifas actualizadas con tus libros", "good");
+  }
+
+  return (
+    <Disclosure
+      summary="Deducir las tarifas de tus propios libros"
+      note="Lo más fiable: son tus cifras reales de KDP"
+    >
+      <div className="stack">
+        <div className="small muted" style={{ lineHeight: 1.7 }}>
+          En KDP, cada libro te muestra su <strong>coste de impresión</strong>. Apunta aquí dos o tres —
+          en blanco y negro, tamaño normal, de la misma tienda— con sus páginas. Por encima de {threshold}{" "}
+          páginas el coste sube en línea recta, así que con dos ya sale la tarifa exacta. Si añades uno
+          de {threshold} páginas o menos, también sale la tarifa plana.
+        </div>
+
+        <div className="table-wrap">
+          <table className="table">
+            <thead><tr><th>Libro</th><th className="num">Páginas</th><th className="num">Coste de impresión</th></tr></thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={index}>
+                  <td className="faint">{index + 1}</td>
+                  <td className="num">
+                    <input
+                      className="input" type="number" min={1} style={{ width: 110 }} placeholder="234"
+                      value={row.pages} onChange={(event) => edit(index, "pages", event.target.value)}
+                    />
+                  </td>
+                  <td className="num">
+                    <input
+                      className="input" type="number" min={0} step={0.01} style={{ width: 110 }} placeholder="3.81"
+                      value={row.cost} onChange={(event) => edit(index, "cost", event.target.value)}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {samples.length && !canApply ? (
+          <Alert tone="warn">
+            {solved.usedLong === 1 || solved.usedLong === 0
+              ? `Hacen falta dos libros de más de ${threshold} páginas: con uno solo no se puede saber cuánto sube por página.`
+              : "Esas cifras no encajan con cómo cobra Amazon. Comprueba que sean del mismo tipo de libro (blanco y negro, tamaño normal) y de la misma tienda."}
+          </Alert>
+        ) : null}
+
+        {canApply ? (
+          <Alert tone="good">
+            <div className="small" style={{ lineHeight: 1.8 }}>
+              {solved.flatFee !== null ? <>Hasta {threshold} páginas: <strong>{solved.flatFee.toFixed(2)}</strong> fijo.<br /></> : null}
+              {solved.perPage !== null ? (
+                <>
+                  Por encima: <strong>{(solved.overThresholdFixed ?? 0).toFixed(2)}</strong> más{" "}
+                  <strong>{solved.perPage.toFixed(4)}</strong> por página.
+                  {solved.worstError !== null && solved.worstError > 0.02
+                    ? <> El ajuste se desvía hasta {solved.worstError.toFixed(2)} de alguno de tus libros; añade otro para afinarlo.</>
+                    : null}
+                </>
+              ) : null}
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <Button variant="primary" icon={<Icon.Check size={15} />} onClick={apply}>Usar estas tarifas</Button>
+            </div>
+          </Alert>
+        ) : null}
+      </div>
+    </Disclosure>
   );
 }

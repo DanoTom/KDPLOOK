@@ -256,6 +256,12 @@ export interface NicheListItem {
 
 /** Printing-cost parameters, editable because Amazon revises them periodically. */
 export interface PrintingCosts {
+  /**
+   * The constant in front of the per-page tier ("$1.00 + $0.012/page" in the
+   * US). A currency amount, so it differs per storefront. Optional so settings
+   * saved before it existed still load.
+   */
+  overThresholdFixed?: number;
   bwRegularFixed: number;
   bwRegularPerPage: number;
   bwRegularFixedMaxPages: number;

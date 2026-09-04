@@ -21,7 +21,14 @@ export const DEFAULT_PRINTING_COSTS: PrintingCosts = {
   hardcoverPerPage: 0.012,
 };
 
-const FIXED_PART = 1.0; // The "$1.00 +" component of the per-page tiers.
+/**
+ * The constant that sits in front of the per-page tier — "$1.00 + $0.012/page"
+ * in the United States. It is a currency amount, so it is not the same number
+ * on Amazon.es, and it lives in the editable rates rather than here.
+ */
+function fixedPart(costs: PrintingCosts): number {
+  return typeof costs.overThresholdFixed === "number" ? costs.overThresholdFixed : 1.0;
+}
 
 export function printingCost(
   pages: number,
@@ -45,18 +52,18 @@ export function printingCost(
   if (ink === "color") {
     return p <= costs.bwRegularFixedMaxPages
       ? round2(costs.colorRegularFixed)
-      : round2(FIXED_PART + costs.colorRegularPerPage * p);
+      : round2(fixedPart(costs) + costs.colorRegularPerPage * p);
   }
 
   // Black ink
   if (trim === "large") {
     return p <= costs.bwRegularFixedMaxPages
       ? round2(costs.bwLargeFixed)
-      : round2(FIXED_PART + costs.bwLargePerPage * p);
+      : round2(fixedPart(costs) + costs.bwLargePerPage * p);
   }
   return p <= costs.bwRegularFixedMaxPages
     ? round2(costs.bwRegularFixed)
-    : round2(FIXED_PART + costs.bwRegularPerPage * p);
+    : round2(fixedPart(costs) + costs.bwRegularPerPage * p);
 }
 
 /** Kindle delivery fee, charged only on the 70% plan. */
@@ -100,7 +107,11 @@ export function computeRoyalty(input: RoyaltyInput, costs: PrintingCosts): Royal
   if (input.format === "paperback" && price < 2.99) {
     notes.push("KDP exige un precio mínimo de lista que depende del coste de impresión.");
   }
-  notes.push("Impresión estimada con las tarifas de EE. UU.; verifica en KDP antes de fijar el precio.");
+  notes.push(
+    typeof costs.overThresholdFixed === "number"
+      ? "Impresión calculada con las tarifas que mediste con tus propios libros."
+      : "Impresión estimada con las tarifas de EE. UU. en dólares. Si publicas en otra tienda, mídelas con tus libros en Ajustes.",
+  );
 
   return {
     royaltyRate: rate,
@@ -140,4 +151,88 @@ function round2(value: number): number {
 
 function fmt(value: number): string {
   return `$${value.toFixed(2)}`;
+}
+
+
+/**
+ * Work the printing rates out from books whose real cost is known.
+ *
+ * Amazon publishes these per storefront and per currency, revises them, and the
+ * defaults here are the US table in dollars — so every royalty this app shows a
+ * publisher on Amazon.es is off by whatever the euro table differs by. Rather
+ * than shipping a guess at another country's numbers, the rates are measured:
+ * KDP shows the printing cost of each of your own books, and two of them above
+ * the flat-fee threshold determine the line exactly, since cost is
+ * `fixed + perPage × pages` and two points fix a line.
+ */
+export interface PrintingSample {
+  pages: number;
+  cost: number;
+}
+
+export interface SolvedPrintingRates {
+  /** Flat fee charged at or below the threshold. */
+  flatFee: number | null;
+  /** The constant in front of the per-page tier. */
+  overThresholdFixed: number | null;
+  perPage: number | null;
+  usedShort: number;
+  usedLong: number;
+  /** Largest gap between a sample's real cost and what the fit predicts. */
+  worstError: number | null;
+}
+
+export function solvePrintingRates(
+  samples: PrintingSample[],
+  thresholdPages: number,
+): SolvedPrintingRates {
+  const clean = samples.filter(
+    (s) => Number.isFinite(s.pages) && Number.isFinite(s.cost) && s.pages > 0 && s.cost > 0,
+  );
+  const short = clean.filter((s) => s.pages <= thresholdPages);
+  const long = clean.filter((s) => s.pages > thresholdPages);
+
+  // At or below the threshold the page count does not matter, so the fee is
+  // just what those books cost; the median keeps one odd entry from setting it.
+  let flatFee: number | null = null;
+  if (short.length) {
+    const costs = short.map((s) => s.cost).sort((a, b) => a - b);
+    const mid = Math.floor(costs.length / 2);
+    flatFee = round2(costs.length % 2 ? costs[mid] : (costs[mid - 1] + costs[mid]) / 2);
+  }
+
+  if (long.length < 2) {
+    return { flatFee, overThresholdFixed: null, perPage: null, usedShort: short.length, usedLong: long.length, worstError: null };
+  }
+
+  // Least squares through the long samples: exact with two, and with more it
+  // absorbs the rounding Amazon does to the cent.
+  const n = long.length;
+  const sumX = long.reduce((a, s) => a + s.pages, 0);
+  const sumY = long.reduce((a, s) => a + s.cost, 0);
+  const sumXY = long.reduce((a, s) => a + s.pages * s.cost, 0);
+  const sumXX = long.reduce((a, s) => a + s.pages * s.pages, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (Math.abs(denom) < 1e-9) {
+    // Every long sample has the same page count: one point, no line.
+    return { flatFee, overThresholdFixed: null, perPage: null, usedShort: short.length, usedLong: n, worstError: null };
+  }
+
+  const perPage = (n * sumXY - sumX * sumY) / denom;
+  const fixed = (sumY - perPage * sumX) / n;
+  if (!(perPage > 0) || !(fixed >= 0)) {
+    // A negative rate means the samples contradict the model rather than
+    // measuring it — usually a typo, or books on different ink or trim.
+    return { flatFee, overThresholdFixed: null, perPage: null, usedShort: short.length, usedLong: n, worstError: null };
+  }
+
+  const worstError = Math.max(...long.map((s) => Math.abs(s.cost - (fixed + perPage * s.pages))));
+  return {
+    flatFee,
+    overThresholdFixed: round2(fixed),
+    perPage: Math.round(perPage * 10000) / 10000,
+    usedShort: short.length,
+    usedLong: n,
+    worstError: round2(worstError),
+  };
 }
