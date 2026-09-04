@@ -65,7 +65,10 @@ export function bookmarkletSource({ appOrigin, token }: BookmarkletOptions): str
       return copy.outerHTML;
     };
 
-    var slot=document.querySelector(".s-main-slot")||document.querySelector('[data-component-type="s-search-results"]')||document.body;
+    // #search first, not .s-main-slot: the "1-16 de más de 2.000 resultados"
+    // line lives in a bar *above* the results, and that count is one of the
+    // hard gates the report is judged on. Trimming to the list threw it away.
+    var slot=document.getElementById("search")||document.querySelector(".s-main-slot")||document.querySelector('[data-component-type="s-search-results"]')||document.body;
     var searchHtml=clean(slot);
 
     var cards=document.querySelectorAll('[data-component-type="s-search-result"][data-asin]');

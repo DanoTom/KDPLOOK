@@ -349,6 +349,19 @@ function NicheReport({
             label="Competencia" value={summary.competitionScore} tone={toneForCompetition(summary.competitionScore)}
             sub={`mediana ${fmtInt(summary.medianReviews)} reseñas`}
           />
+          {/* One of the two hard gates in the entry criteria, and it was buried
+              among the signals while the headline score barely used it. */}
+          <Kpi
+            label="Libros compitiendo"
+            value={summary.totalResults !== null ? fmtCompact(summary.totalResults) : "—"}
+            tone={summary.totalResults === null ? "neutral"
+              : summary.totalResults <= 1000 ? "good"
+              : summary.totalResults <= 2000 ? "warn" : "bad"}
+            sub={summary.totalResults === null ? "Amazon no dio el recuento"
+              : summary.totalResults <= 1000 ? "nicho verde: se entra orgánicamente"
+              : summary.totalResults <= 2000 ? "viable con algo de publicidad"
+              : "por encima de tu límite de 2.000"}
+          />
           <Kpi
             label="Regalías del top" value={fmtMoney(summary.totalRevenuePerMonth, currency)} tone="accent"
             sub="suma mensual estimada del top 20"

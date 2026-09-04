@@ -216,6 +216,14 @@ app.post("/api/capture", async (c) => {
     totalResults: parsed.totalResults, resultsCountText: parsed.resultsCountText,
   });
 
+  if (parsed.crossDepartment) {
+    // Amazon padded the page from other departments, so most of what follows is
+    // not the niche. Recorded with the analysis rather than lost.
+    summary.verdict.reasoning.push(
+      "Amazon se quedó sin resultados en este departamento y rellenó la página con otros: buena parte de estos libros no compiten realmente por esta búsqueda.",
+    );
+  }
+
   const id = await saveNiche(c.env, summary, items, "Capturado desde el navegador");
   await logFetch(c.env, {
     kind: "search", target: `capture:${keyword}`, provider: "navegador", status: 200,
@@ -293,6 +301,7 @@ app.post("/api/scan/search", async (c) => {
     elapsedMs: outcome.ms,
     fromCache: false,
     noResults: parsed.noResults,
+    crossDepartment: parsed.crossDepartment,
     pageHint: parsed.pageHint,
     warning: parsed.items.length === 0
       ? (parsed.noResults
@@ -316,6 +325,8 @@ interface SearchResponse {
   elapsedMs: number;
   /** Amazon returned its own "nothing here" page rather than a broken one. */
   noResults?: boolean;
+  /** Amazon padded the page with results from other departments. */
+  crossDepartment?: boolean;
   /** What the page said where the results should have been, when nothing parsed. */
   pageHint?: string | null;
   fromCache: boolean;

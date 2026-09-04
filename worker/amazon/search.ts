@@ -18,6 +18,14 @@ export interface SearchPageResult {
   /** Amazon itself said there is nothing here, in its own words. */
   noResults: boolean;
   /**
+   * Amazon ran out of matches in the department asked for and padded the page
+   * with results from elsewhere. The books listed are then not the niche: a
+   * search for "agenda para psicologos" in Spanish paperbacks that returns one
+   * match comes back filled with Kindle, Italian and Portuguese editions, and
+   * reading those as the competition describes a market that does not exist.
+   */
+  crossDepartment: boolean;
+  /**
    * The first words Amazon prints in the results area, kept only when nothing
    * parsed. Amazon is unreachable from CI, so when this file fails to read a
    * page the page itself has to come back and say what it was.
@@ -305,6 +313,16 @@ const NO_RESULTS_RE = new RegExp(
   "i",
 );
 
+/** Amazon's own admission that it went looking outside the department asked for. */
+const CROSS_DEPARTMENT_RE = new RegExp(
+  [
+    "Mostrando resultados de", "Showing results from", "Results from other departments",
+    "Ergebnisse aus allen", "R[ée]sultats de tous les", "Risultati da tutti",
+    "Resultaten uit alle", "Mostrando resultados de todos",
+  ].join("|"),
+  "i",
+);
+
 /**
  * The opening text of the results area, for the case where nothing parsed.
  *
@@ -386,6 +404,11 @@ export function parseSearchPage(
     // Only worth asking when nothing came back; a page full of books is an
     // answer already, and both of these cost a pass over the markup.
     noResults: allBlocks.length === 0 && NO_RESULTS_RE.test(html),
+    // Two independent signs, because either alone can be missed: Amazon saying
+    // so, and a page holding far more books than it claims to have found.
+    crossDepartment:
+      CROSS_DEPARTMENT_RE.test(html) ||
+      (total !== null && allBlocks.length > 2 && total < allBlocks.length),
     pageHint: allBlocks.length === 0 ? extractPageHint(html) : null,
   };
 }

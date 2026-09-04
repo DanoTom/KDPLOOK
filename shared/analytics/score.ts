@@ -2,6 +2,7 @@ import type {
   AppSettings, BookRecord, MarketplaceId, NicheSummary, Signal, Verdict,
 } from "../types";
 import { calibrationFor, salesPerMonth } from "./bsr";
+import { RESULTS_GREEN, RESULTS_LIMIT } from "./checklist";
 import { estimateRoyaltyPerUnit } from "./royalty";
 import { currencySymbolFor } from "../currency";
 
@@ -116,6 +117,16 @@ const DEMAND_ANCHORS: Array<[number, number]> = [
   [50, 65], [100, 76], [200, 86], [400, 94], [800, 100],
 ];
 
+/**
+ * Competition implied by the size of the result set alone, on the operator's
+ * thresholds. A floor rather than an addition: however weak the books on page
+ * one look, ten thousand of them is not a quiet niche.
+ */
+const RESULTS_ANCHORS: Array<[number, number]> = [
+  [0, 0], [200, 18], [RESULTS_GREEN, 34], [RESULTS_LIMIT, 52],
+  [5_000, 70], [10_000, 78], [25_000, 87], [60_000, 94], [150_000, 100],
+];
+
 const COMPETITION_ANCHORS: Array<[number, number]> = [
   [0, 4], [10, 14], [25, 24], [50, 34], [100, 44], [250, 57],
   [500, 68], [1000, 78], [2500, 88], [6000, 95], [15000, 100],
@@ -189,7 +200,14 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     competition -= (selfPublishedShare - 0.5) * 18;
   }
   if (freshShare !== null && freshShare > 0.35) competition -= 6;
-  if (opts.totalResults !== null && opts.totalResults > 40_000) competition += 5;
+  // How many books are already fighting for the term. The operator's own
+  // criteria call under 1,000 a green niche, 1,000-2,000 workable with a small
+  // ad budget, and over 2,000 saturated — but this only nudged the score past
+  // 40,000, twenty times that limit. A term with 10,000 competitors could come
+  // out "Bueno" while the entry gates on the same screen failed it.
+  if (opts.totalResults !== null) {
+    competition = Math.max(competition, curve(opts.totalResults, RESULTS_ANCHORS));
+  }
   competition = Math.max(0, Math.min(100, competition));
 
   // --- opportunity ----------------------------------------------------------

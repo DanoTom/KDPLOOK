@@ -908,6 +908,71 @@ console.log("\noportunidad de una keyword");
   truthy("un nicho vacio que nadie busca no es una oportunidad", (quiet?.score ?? 100) < (green?.score ?? 0));
 }
 
+console.log("\nel recuento de resultados pesa en la competencia");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const make = (position: number): BookRecord => ({
+    asin: `B0${String(position).padStart(8, "0")}`, title: `T${position}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 14, rating: 4.4, reviews: 12,
+    sponsored: false, kindleUnlimited: false, position, bsr: 30_000, categoryRanks: [], pages: 120,
+    publisher: null, publishedAt: null, language: null, isbn: null, dimensions: null,
+    selfPublished: true, enriched: true, salesPerMonth: 25, revenuePerMonth: 90,
+    royaltyPerUnit: 3.6, ageMonths: 20, weakness: 70,
+  });
+  const items = Array.from({ length: 16 }, (_, i) => make(i + 1));
+  const at = (totalResults: number) => summariseNiche(items, {
+    keyword: "agenda docente", marketplace: "es", settings, totalResults, resultsCountText: null,
+  });
+
+  // The operator's own criteria: under 1.000 green, 1.000-2.000 workable,
+  // over 2.000 saturated. The score only reacted past 40.000 — twenty times
+  // the limit — so a term with ten thousand rivals came out "Excelente" while
+  // the entry gates on the same screen were failing it.
+  truthy("un nicho verde sigue siendo excelente", at(400).opportunityScore > 70);
+  truthy("10.000 rivales ya no es una gran oportunidad", at(10_000).opportunityScore < 60);
+  truthy("y la competencia sube con ellos", at(10_000).competitionScore > at(400).competitionScore + 40);
+  truthy("el limite de 2.000 marca el cambio de tono",
+    at(2_000).competitionScore > at(1_000).competitionScore);
+  truthy("por muy flojos que parezcan los rivales", at(60_000).competitionScore > 85);
+}
+
+console.log("\namazon rellenando con otros departamentos");
+{
+  const es = getMarketplace("es");
+  const card = (asin: string) =>
+    `<div data-asin="${asin}" data-component-type="s-search-result" class="s-result-item">` +
+    `<h2 aria-label="Libro ${asin}"><span>Libro ${asin}</span></h2></div>`;
+
+  // The exact case: "1 resultado" and then a page full of Kindle, Italian and
+  // Portuguese editions. Those are not the niche's competition.
+  const padded =
+    `<div class="s-main-slot"><span>1 resultado para "agenda para psicologos"</span>` +
+    `<div>Mostrando resultados de Todos los departamentos</div>` +
+    Array.from({ length: 8 }, (_, i) => card(`B0PAD${String(i).padStart(5, "0")}`)).join("") +
+    `</div>`;
+  check("reconoce el relleno de otros departamentos", parseSearchPage(padded, es).crossDepartment, true);
+
+  // And without Amazon saying so: claiming one result while showing eight is
+  // the same thing, in any language.
+  const silent =
+    `<div class="s-main-slot"><span>1 resultado para "x"</span>` +
+    Array.from({ length: 8 }, (_, i) => card(`B0SIL${String(i).padStart(5, "0")}`)).join("") +
+    `</div>`;
+  check("y lo deduce del descuadre entre recuento y libros", parseSearchPage(silent, es).crossDepartment, true);
+
+  // A normal page must not trip it.
+  const normal =
+    `<div class="s-main-slot"><span>1-16 de más de 2.000 resultados para "agenda psicologo"</span>` +
+    Array.from({ length: 8 }, (_, i) => card(`B0NOR${String(i).padStart(5, "0")}`)).join("") +
+    `</div>`;
+  const parsedNormal = parseSearchPage(normal, es);
+  check("una pagina normal no salta", parsedNormal.crossDepartment, false);
+  check("y su recuento se lee", parsedNormal.totalResults, 2000);
+}
+
 console.log("\ntarifas de impresion deducidas de libros propios");
 {
   // Two books above the threshold fix the line exactly: the US table is

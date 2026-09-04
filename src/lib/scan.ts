@@ -74,6 +74,7 @@ export function useNicheScan(settings: AppSettings) {
     let provider = "direct";
     let fromCache = true;
     let emptyDepartment = false;
+    let crossDepartment = false;
     let pageHint: string | null = null;
     const started = Date.now();
 
@@ -96,6 +97,7 @@ export function useNicheScan(settings: AppSettings) {
           resultsCountText = response.resultsCountText;
         }
         if (page === 1 && response.noResults) emptyDepartment = true;
+        if (page === 1 && response.crossDepartment) crossDepartment = true;
         if (page === 1 && response.pageHint) pageHint = response.pageHint;
         if (response.warning) warnings.push(`Página ${page}: ${response.warning}`);
         for (const item of response.items) {
@@ -213,6 +215,18 @@ export function useNicheScan(settings: AppSettings) {
     }
     if (blocked && pending.length) {
       warnings.push("Amazon bloqueó parte de las peticiones; los datos de BSR están incompletos. Prueba de nuevo en unos minutos o baja el paralelismo en Ajustes.");
+    }
+
+    if (crossDepartment) {
+      // Amazon ran out of matches in the department asked for and padded the
+      // page from elsewhere. Those books are not this niche's competition —
+      // a Spanish paperback search comes back holding Kindle, Italian and
+      // Portuguese editions — so the whole report is describing a mixture.
+      warnings.unshift(
+        "Amazon se quedó sin resultados en este departamento y rellenó la página con libros de otros: " +
+        "buena parte de los que ves no compiten de verdad por esta búsqueda. Prueba una frase más común, " +
+        "o mira el recuento real de resultados antes de fiarte del veredicto.",
+      );
     }
 
     setRaw({
