@@ -22,6 +22,7 @@ import { deriveMetrics, summariseNiche } from "../shared/analytics/score";
 import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import { RESULTS_GREEN, RESULTS_LIMIT } from "../shared/analytics/checklist";
 import { isPublishableBook } from "../shared/analytics/book";
+import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content";
 import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
 import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
@@ -1059,6 +1060,54 @@ console.log("\nrivales: resenas leidas contra el ranking");
   truthy("un lanzamiento vendiendo y sin reseñas es la presa fácil", reciente > 90);
 }
 
+console.log("\nbajo, medio y alto contenido son tres negocios");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const b = (i: number, over: Partial<BookRecord> = {}): BookRecord => ({
+    asin: `B0${String(i).padStart(8, "0")}`, title: `T${i}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 12, rating: 4.5, reviews: 60,
+    sponsored: false, kindleUnlimited: false, position: i, bsr: 8_000, categoryRanks: [],
+    pages: 104, publisher: "Independently published", publishedAt: null, language: null,
+    isbn: null, dimensions: null, selfPublished: true, enriched: true, salesPerMonth: 35,
+    revenuePerMonth: 150, royaltyPerUnit: 4.5, ageMonths: 30, weakness: 70, ...over,
+  });
+  const niche = (over: Partial<BookRecord>) => Array.from({ length: 8 }, (_, i) => b(i + 1, over));
+
+  // Page count separates them; the print-fee threshold at 108 is a real
+  // boundary publishers design around.
+  check("un cuaderno barato y corto es bajo contenido", inferContentType(niche({ pages: 84, price: 6.5 })), "bajo");
+  check("un libro de pasatiempos es medio", inferContentType(niche({ pages: 104, price: 11 })), "medio");
+  check("una guía de no ficción es alto", inferContentType(niche({ pages: 160, price: 16.99 })), "alto");
+  check("corto pero caro es un pasatiempos, no una libreta",
+    inferContentType(niche({ pages: 84, price: 11.5 })), "medio");
+
+  // The same 12 EUR price is healthy for one and short for the other.
+  const medio = reviewExpertise(niche({ pages: 104, price: 12 }),
+    { marketplace: "es", totalResults: 800, settings });
+  const alto = reviewExpertise(niche({ pages: 160, price: 12 }),
+    { marketplace: "es", totalResults: 800, settings });
+  check("12 € basta para medio contenido", medio.gates.find((g) => g.id === "precio")?.pass, true);
+  check("pero se queda corto para alto contenido", alto.gates.find((g) => g.id === "precio")?.pass, false);
+
+  // And a rival with 150 reviews is out of reach in one and reachable in the other.
+  const medioReseñas = reviewExpertise(niche({ pages: 104, price: 12, reviews: 150 }),
+    { marketplace: "es", totalResults: 800, settings });
+  const altoReseñas = reviewExpertise(niche({ pages: 160, price: 16.99, reviews: 150 }),
+    { marketplace: "es", totalResults: 800, settings });
+  check("150 reseñas son alcanzables en medio contenido",
+    medioReseñas.gates.find((g) => g.id === "viabilidad")?.pass, true);
+  check("y ya no lo son en alto contenido",
+    altoReseñas.gates.find((g) => g.id === "viabilidad")?.pass, false);
+
+  // The 104-page sweet spot is not arbitrary: KDP charges a flat print fee up
+  // to 108 pages and per page above it.
+  check("el punto dulce de medio contenido son 104 páginas", CONTENT_PROFILES.medio.sweetSpotPages, 104);
+  truthy("y el de alto contenido está por encima", CONTENT_PROFILES.alto.sweetSpotPages > 108);
+}
+
 console.log("\nel veredicto no puede superar a los criterios de entrada");
 {
   const settings = {
@@ -1067,9 +1116,12 @@ console.log("\nel veredicto no puede superar a los criterios de entrada");
   } as unknown as AppSettings;
   const b = (i: number, over: Partial<BookRecord> = {}): BookRecord => ({
     asin: `B0${String(i).padStart(8, "0")}`, title: `T${i}`, author: "A", url: "", image: "",
+    // 104 pages at 12 EUR is a coherent medium-content niche. Mixing 120 pages
+    // with a 12 EUR price would fail the price gate too, and this case is about
+    // the demand gate on its own.
     format: "paperback", formatLabel: "Tapa blanda", price: 12, rating: 4.5, reviews: 4,
     sponsored: false, kindleUnlimited: false, position: i, bsr: 330_000, categoryRanks: [],
-    pages: 120, publisher: "Independently published", publishedAt: null, language: null,
+    pages: 104, publisher: "Independently published", publishedAt: null, language: null,
     isbn: null, dimensions: null, selfPublished: true, enriched: true, salesPerMonth: 1,
     revenuePerMonth: 4, royaltyPerUnit: 4, ageMonths: 20, weakness: 80, ...over,
   });

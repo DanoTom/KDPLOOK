@@ -337,3 +337,54 @@ el cálculo de *rival alcanzable*. El aviso de «léelo como techo» sigue en do
 meses a propósito: mide otra cosa — no cuánta ayuda le da Amazon al libro, sino
 cuánta historia de ventas hay detrás de su ranking. A los dos meses, un título
 con anuncios sigue teniendo un ranking hecho de un puñado de pedidos.
+
+---
+
+## Calibración para mercados pequeños y por tipo de contenido (sept. 2026)
+
+### El filtro de demanda estaba hecho a medida de EE. UU.
+
+Pedir **3 libros por debajo del BSR de venta diaria** es una expectativa del
+tamaño del mercado estadounidense. Dos escaneos reales de nichos españoles
+vivos devolvieron **cero libros bajo BSR 10.000** — el mejor estaba en 15.726 —
+así que ese listón suspende casi cualquier nicho español y la herramienta solo
+sabría decir que no.
+
+Un nicho sano se describe mejor en dos partes:
+
+- **un líder que venda a diario** (BSR ≤ 10.000 en .es, ≤ 300.000 en .com), y
+- **un pelotón detrás vendiendo cada semana**: ≥ 3 libros bajo el triple de ese
+  umbral (30.000 en .es).
+
+Con una sola de las dos no hay mercado en el que entrar, y el criterio ahora
+dice cuál de las dos falta.
+
+### Bajo, medio y alto contenido no son el mismo negocio
+
+Juzgarlos con los mismos números lee un nicho de no ficción sano como caro, y
+uno de libretas como inusualmente generoso.
+
+| | Bajo | Medio | Alto |
+|---|---|---|---|
+| Precio | 6–8 € | **9,99–12,99 €** | **14,99 €+** |
+| Páginas | 80–100 | **104** | 120–180 |
+| Regalía objetivo | ~2 € | 4,50–6 € | 6 €+ |
+| Rival alcanzable | — | < 200 reseñas | **< 100 reseñas** |
+| Barrera de entrada | ninguna | media (software) | alta (redacción) |
+
+Las 104 páginas de medio contenido no son arbitrarias: KDP cobra una tarifa
+plana hasta la 108 y por página a partir de ahí.
+
+El tipo se deduce del propio nicho (páginas, y el precio para deshacer
+empates) y se muestra arriba de los criterios con los números que aplica.
+
+### Lo que sigue pendiente
+
+- **Las 10 categorías**: siguen existiendo en 2026, pero por ticket a soporte,
+  no desde el panel. La función útil sería extraer los IDs de las 8
+  subcategorías menos competidas donde los rivales tienen el badge, y generar
+  el correo listo para enviar.
+- **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,
+  CVR ≥ 10 %, 10–15 reseñas antes del día 5, no tocar nada antes de 1.000
+  impresiones). CTR y CVR viven en la consola de Ads, que esta app no lee: solo
+  se pueden pedir a mano o dejar como referencia.

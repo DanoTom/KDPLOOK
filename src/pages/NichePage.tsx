@@ -625,6 +625,17 @@ function ExpertGates({ items, summary }: { items: BookRecord[]; summary: NicheSu
       </CardHead>
 
       <div className="card-pad stack">
+        {/* Which of the three businesses this is decides the price floor, the
+            page count that earns most, and when a rival becomes reachable. */}
+        <Alert tone="info">
+          <strong>{review.profile.label}</strong> — {review.profile.note}
+          <div className="small" style={{ marginTop: 6 }}>
+            Los criterios de abajo usan sus números: precio desde{" "}
+            {review.profile.priceFloor.toFixed(2)}, {review.profile.sweetSpotPages} páginas como punto
+            dulce, y un rival alcanzable por debajo de {review.profile.beatableReviews} reseñas.
+          </div>
+        </Alert>
+
         <div className="grid grid-3">
           {review.gates.map((gate) => (
             <div key={gate.id} className="signal" style={{ alignItems: "flex-start" }}>

@@ -1,5 +1,7 @@
 import type { AppSettings, BookRecord, MarketplaceId } from "../types";
+import type { ContentProfile, ContentType } from "./content";
 import { isPublishableBook } from "./book";
+import { CONTENT_PROFILES, inferContentType } from "./content";
 
 /**
  * The operator's own entry criteria, applied to a scanned niche.
@@ -28,6 +30,8 @@ export interface RedFlag {
 }
 
 export interface ExpertReview {
+  /** Which of the three businesses this niche is, and its own numbers. */
+  profile: ContentProfile;
   gates: Gate[];
   passed: number;
   evaluated: number;
@@ -74,12 +78,33 @@ export const DEAD_BSR = 2_000_000;
 /** How many selling competitors the guide wants before calling demand proven. */
 export const MIN_PROVEN = 3;
 
+/**
+ * The rank the rest of the field has to reach, as a multiple of the daily-sale
+ * threshold.
+ *
+ * Asking for three books under the daily-sale rank was a US-shaped
+ * expectation. Spain is a much smaller market: two real scans of live Spanish
+ * niches came back with zero books under BSR 10.000 — the best was 15.726 — so
+ * that bar fails almost every Spanish niche and the tool would only ever say
+ * no. A healthy niche is better described in two parts: a leader who does sell
+ * daily, and a peloton around three times deeper that sells weekly. Under
+ * either one alone there is no market to enter.
+ */
+const PELOTON_MULTIPLE = 3;
+
 export function reviewExpertise(
   items: BookRecord[],
-  opts: { marketplace: MarketplaceId; totalResults: number | null; settings: AppSettings },
+  opts: {
+    marketplace: MarketplaceId; totalResults: number | null; settings: AppSettings;
+    /** Overrides what the niche's own page counts and prices imply. */
+    contentType?: ContentType;
+  },
 ): ExpertReview {
   const { marketplace, totalResults } = opts;
   const demandBsr = demandBsrFor(marketplace);
+  // A journal, a puzzle book and a non-fiction guide are judged on different
+  // numbers. Read which one this niche is rather than applying one set to all.
+  const profile = CONTENT_PROFILES[opts.contentType ?? inferContentType(items)];
 
   // Commercial stationery is not a rival to beat: a Finocam diary at BSR 59
   // would satisfy "demanda demostrada" while telling a publisher nothing.
@@ -106,29 +131,40 @@ export function reviewExpertise(
   };
 
   // --- Gate 2: are enough titles actually selling ---------------------------
+  // Two halves: somebody selling every day, and a field behind them selling
+  // every week. `selling` stays the daily bar — the red flags below reason
+  // about who is genuinely moving copies.
+  const peloton = demandBsr * PELOTON_MULTIPLE;
   const selling = enriched.filter((b) => (b.bsr ?? Infinity) <= demandBsr);
+  const steady = enriched.filter((b) => (b.bsr ?? Infinity) <= peloton);
+  const leader = enriched.length ? Math.min(...enriched.map((b) => b.bsr ?? Infinity)) : Infinity;
+  const hasLeader = leader <= demandBsr;
   const demanda: Gate = {
     id: "demanda",
     label: "Demanda demostrada",
-    pass: enriched.length === 0 ? null : selling.length >= MIN_PROVEN,
-    value: enriched.length === 0 ? "sin BSR leído" : `${selling.length} de ${enriched.length} con BSR ≤ ${demandBsr.toLocaleString("es")}`,
-    requirement: `≥ ${MIN_PROVEN} libros vendiendo`,
+    pass: enriched.length === 0 ? null : hasLeader && steady.length >= MIN_PROVEN,
+    value: enriched.length === 0 ? "sin BSR leído"
+      : `${steady.length} de ${enriched.length} con BSR ≤ ${peloton.toLocaleString("es")}` +
+        (hasLeader ? `, el mejor en ${leader.toLocaleString("es")}` : ""),
+    requirement: `≥ ${MIN_PROVEN} vendiendo cada semana y uno que venda a diario (BSR ≤ ${demandBsr.toLocaleString("es")})`,
     detail:
       enriched.length === 0 ? "No se pudo leer la clasificación de ningún libro; repite el escaneo."
-      : selling.length >= MIN_PROVEN ? "Hay varios competidores con ventas constantes: la demanda existe."
+      : hasLeader && steady.length >= MIN_PROVEN ? "Hay un líder vendiendo a diario y un pelotón detrás con ventas semanales: el nicho mueve dinero."
+      : !hasLeader && steady.length >= MIN_PROVEN ? `Se vende, pero nadie baja de ${demandBsr.toLocaleString("es")}: ninguno vende a diario. El techo de ingresos es bajo.`
+      : hasLeader ? "Un libro vende bien y detrás no hay nadie: mira si el nicho depende de un solo vendedor."
       : "Pocos libros venden de verdad aquí. Puede ser un término que se busca poco.",
   };
 
   // --- Gate 3: is the social proof beatable ---------------------------------
   const withReviews = page1.filter((b) => b.reviews !== null);
-  const beatable = withReviews.filter((b) => (b.reviews ?? 0) < REVIEWS_BEATABLE);
+  const beatable = withReviews.filter((b) => (b.reviews ?? 0) < profile.beatableReviews);
   const allEntrenched = withReviews.length > 0 && withReviews.every((b) => (b.reviews ?? 0) > REVIEWS_UNREACHABLE);
   const viabilidad: Gate = {
     id: "viabilidad",
     label: "Viabilidad de entrada",
     pass: withReviews.length === 0 ? null : !allEntrenched && beatable.length >= MIN_PROVEN,
-    value: withReviews.length === 0 ? "sin reseñas leídas" : `${beatable.length} de ${withReviews.length} con < ${REVIEWS_BEATABLE} reseñas`,
-    requirement: `≥ ${MIN_PROVEN} competidores por debajo de ${REVIEWS_BEATABLE}`,
+    value: withReviews.length === 0 ? "sin reseñas leídas" : `${beatable.length} de ${withReviews.length} con < ${profile.beatableReviews} reseñas`,
+    requirement: `≥ ${MIN_PROVEN} competidores por debajo de ${profile.beatableReviews} (${profile.label.toLowerCase()})`,
     detail:
       withReviews.length === 0 ? "No se leyó el número de reseñas."
       : allEntrenched ? `Todos superan las ${REVIEWS_UNREACHABLE.toLocaleString("es")} reseñas: la prueba social es una barrera casi insuperable de frente.`
@@ -142,13 +178,13 @@ export function reviewExpertise(
   const precio: Gate = {
     id: "precio",
     label: "Precio del nicho",
-    pass: medianPrice === null ? null : medianPrice >= PRICE_HEALTHY,
+    pass: medianPrice === null ? null : medianPrice >= profile.priceFloor,
     value: medianPrice === null ? "sin precios leídos" : `${medianPrice.toFixed(2)} de mediana`,
-    requirement: `≥ ${PRICE_HEALTHY.toFixed(2)}`,
+    requirement: `≥ ${profile.priceFloor.toFixed(2)} (${profile.label.toLowerCase()})`,
     detail:
       medianPrice === null ? "No se leyó ningún precio."
-      : medianPrice >= PRICE_HEALTHY ? "El nicho soporta un precio con margen: la regalía puede financiar publicidad."
-      : `Por debajo de ${PRICE_HEALTHY.toFixed(2)} la regalía se queda corta una vez pagada la impresión, y no da para pujar por un clic.`,
+      : medianPrice >= profile.priceFloor ? `El nicho soporta el precio que pide un ${profile.label.toLowerCase()}: la regalía puede financiar publicidad.`
+      : `Por debajo de ${profile.priceFloor.toFixed(2)} la regalía se queda corta para un ${profile.label.toLowerCase()} una vez pagada la impresión, y no da para pujar por un clic.`,
   };
 
   const gates = [competencia, demanda, viabilidad, precio];
@@ -159,6 +195,7 @@ export function reviewExpertise(
     gates,
     passed,
     evaluated,
+    profile,
     flags: detectRedFlags(items, { marketplace, totalResults, demandBsr, selling, page1 }),
     tone:
       evaluated === 0 ? "unknown"
