@@ -67,7 +67,11 @@ export const CONTENT_PROFILES: Record<ContentType, ContentProfile> = {
     priceFloor: 14.99,
     priceCeiling: 24.99,
     sweetSpotPages: 150,
-    pagesLow: 120,
+    // Starts where the flat print fee stops: above 108 pages KDP charges per
+    // page, so the medio economics no longer hold and the book has to be
+    // priced as a long one. Declared as 120 before, which left 109-119 in no
+    // profile at all while the classifier was handing those niches to alto.
+    pagesLow: 109,
     pagesHigh: 180,
     // Redacción de calidad is the barrier, so fewer rivals are entrenched and a
     // leader with under a hundred reviews is genuinely reachable.
@@ -84,6 +88,17 @@ export const CONTENT_PROFILES: Record<ContentType, ContentProfile> = {
  * 108 pages is a real boundary publishers design around — and the price breaks
  * the tie when the lengths are ambiguous.
  */
+/** Above this many pages KDP stops charging a flat print fee. */
+const FLAT_FEE_PAGES = 108;
+/**
+ * The two prices that place a niche when its length leaves the answer open.
+ * Both are the profiles' own declared edges rather than new numbers: a niche
+ * charging inside the 6-8 band is selling notebooks, one charging what alto
+ * asks is selling books.
+ */
+const LOW_CONTENT_PRICE = CONTENT_PROFILES.bajo.priceCeiling;
+const HIGH_CONTENT_PRICE = 14;
+
 export function inferContentType(items: BookRecord[]): ContentType {
   const books = items.filter((b) => !b.sponsored && isPublishableBook(b));
   const pages = books.map((b) => b.pages).filter((v): v is number => v !== null && v > 0);
@@ -101,15 +116,29 @@ export function inferContentType(items: BookRecord[]): ContentType {
 
   // Nothing read: medium is the least wrong default, and the picker is there.
   if (medianPages === null) {
-    if (medianPrice !== null && medianPrice >= 14) return "alto";
-    return "medio";
+    if (medianPrice === null) return "medio";
+    if (medianPrice >= HIGH_CONTENT_PRICE) return "alto";
+    return medianPrice >= LOW_CONTENT_PRICE ? "medio" : "bajo";
   }
-  if (medianPages > 115) return "alto";
-  if (medianPages < 90) {
-    // Short but expensive is a puzzle book, not a notebook.
-    return medianPrice !== null && medianPrice >= 9 ? "medio" : "bajo";
+
+  // KDP charges a flat print fee up to 108 pages and per page above it. It is
+  // the one boundary in the format that Amazon publishes rather than one this
+  // app estimates, so it is the one the split uses.
+  if (medianPages > FLAT_FEE_PAGES) {
+    // Long and cheap is a thick notebook, not a guide: nobody writes 160 pages
+    // of non-fiction to sell them under the price of a coffee, and reading a
+    // journal niche as alto would demand 14,99 of it and call it overpriced.
+    return medianPrice !== null && medianPrice < LOW_CONTENT_PRICE ? "bajo" : "alto";
   }
-  return "medio";
+
+  // Below the threshold bajo and medio overlap by design (80-100 against
+  // 90-108), and the shelf price is what separates them — as it does in the
+  // shop: 100 pages at 6,99 is a notebook, the same 100 at 11 is a puzzle
+  // book. The line is bajo's own ceiling, so a niche charging inside the 6-8
+  // band is read as the business that band belongs to — and the price-war flag
+  // still fires on it. Without a price, medio sits in the middle of the three.
+  if (medianPrice === null) return "medio";
+  return medianPrice >= LOW_CONTENT_PRICE ? "medio" : "bajo";
 }
 
 /**

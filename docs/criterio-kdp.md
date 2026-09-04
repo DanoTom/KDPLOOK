@@ -408,6 +408,38 @@ página nombran un formato de papelería (agenda, cuaderno, planner, libreta,
 diario…) el informe añade el aviso: se sigue juzgando como alto contenido, pero
 con más competencia nueva y más presión de precio de la que sugiere el perfil.
 
+## Revisión del diff: ocho defectos y lo que cambió (sept. 2026)
+
+Una pasada de revisión sobre los cambios de calibración encontró ocho fallos
+reales. Los que cambian lo que lee el usuario:
+
+- **El veredicto contradecía a su propia puerta.** «Se busca, pero aquí no
+  vende nadie» salía siempre que fallaba la demanda, incluso con la puerta al
+  lado diciendo «10 de 10 con BSR ≤ 30.000». La puerta puede fallar de tres
+  maneras y ahora cada una tiene su titular y su penalización: *pelotón sin
+  líder* (techo de ingresos bajo), *líder sin pelotón* (todo depende de un
+  libro) y *vacía* (la única que cuesta dos escalones).
+- **«Cumple los tres criterios» con cuatro puertas** aparecía justo cuando una
+  estaba en rojo. Y una sola puerta evaluable ya no da tono «excelente».
+- **`bajo` era inalcanzable en su propio punto dulce.** El perfil declara 100
+  páginas y el clasificador nunca devolvía `bajo` por encima de 89, así que un
+  nicho de cuadernos suspendía un suelo de 9,99 € que no le correspondía. El
+  corte pasa a ser la tarifa plana de KDP (108 páginas) y el precio desempata
+  con el techo declarado de `bajo` (8 €). Un nicho a 7,50 se lee ahora como
+  bajo contenido, con el precio en verde y la bandera de guerra de precios.
+- **Dos trampas nuevas no podían saltar en España**, porque contaban sobre el
+  listón diario que el propio commit anterior declaró inalcanzable aquí. Leen
+  el pelotón. Y «ninguna independiente entre las que venden» ya no salta
+  cuando lo que falta es la editorial sin leer: eso era un fallo de lectura
+  contado como hallazgo de mercado.
+- **Las palabras de los títulos podían salir de fichas muertas.** Ser la menos
+  muerta de una página muerta no es un patrón: hay suelo (BSR 2.000.000), y el
+  orden de página solo sustituye al ranking cuando no se leyó ninguno.
+- **El laboratorio y el informe medían con listones distintos.** El
+  laboratorio no tiene páginas y no puede saber el tipo de contenido, así que
+  usa el listón medio y ahora lo dice («listón 200»); el informe, que sí las
+  tiene, aplica el del nicho.
+
 ### Lo que sigue pendiente
 
 - **Las 10 categorías**: siguen existiendo en 2026, pero por ticket a soporte,

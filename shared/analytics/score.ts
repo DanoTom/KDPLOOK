@@ -2,6 +2,7 @@ import type {
   AppSettings, BookRecord, MarketplaceId, NicheSummary, Signal, Verdict,
 } from "../types";
 import { calibrationFor, salesPerMonth } from "./bsr";
+import type { DemandShape } from "./checklist";
 import { RESULTS_GREEN, RESULTS_LIMIT, reviewExpertise } from "./checklist";
 import { isPublishableBook } from "./book";
 import { estimateRoyaltyPerUnit } from "./royalty";
@@ -411,6 +412,21 @@ const VERDICT_TONE: Record<Verdict["label"], Verdict["tone"]> = {
  * ingredients, so a failed one lowers the verdict rather than being averaged
  * away. It never raises one: a niche the gates like can still be a bad idea.
  */
+/** The verdict line for a failed demand gate, matched to how it failed. */
+function demandHeadline(shape: DemandShape | null, failed: boolean): string | null {
+  if (!failed) return null;
+  switch (shape) {
+    case "vacia":
+      return "Se busca, pero aquí no vende nadie: entrar mejor no arregla que no haya compradores.";
+    case "sin-lider":
+      return "Se vende, pero ninguno vende a diario: el techo de ingresos del nicho es bajo.";
+    case "sin-peloton":
+      return "Todo el nicho depende de un solo libro: si ese deja de vender, no queda mercado detrás.";
+    default:
+      return null;
+  }
+}
+
 function capByGates(verdict: Verdict, review: ReturnType<typeof reviewExpertise>): Verdict {
   if (verdict.label === "Sin datos") return verdict;
 
@@ -418,12 +434,19 @@ function capByGates(verdict: Verdict, review: ReturnType<typeof reviewExpertise>
   const severe = review.flags.filter((flag) => flag.severity === "alto");
   if (!failed.length && !severe.length) return verdict;
 
-  // Not all three gates fail the same way. Competition and beatability are
-  // about how hard entry would be; demand is about whether there is anything
-  // to enter. When no book here sells, "viable si entras con un producto por
-  // encima de la media" is the wrong advice entirely — the product is not the
-  // problem, the absence of buyers is — so that one costs two steps.
-  const noDemand = failed.some((gate) => gate.id === "demanda");
+  // Not all gates fail the same way. Competition and beatability are about how
+  // hard entry would be; demand is about whether there is anything to enter.
+  // When no book here sells, "viable si entras con un producto por encima de la
+  // media" is the wrong advice entirely — the product is not the problem, the
+  // absence of buyers is — so that one costs two steps.
+  //
+  // Only that one, though. The demand gate also fails on a page where ten books
+  // sell weekly and none daily, and on a page carried by a single title. Those
+  // are a low ceiling and a one-title niche, not an empty market: they cost the
+  // ordinary step, and they get their own headline instead of being told
+  // "aquí no vende nadie" beside a gate reading "10 de 10 con BSR ≤ 30.000".
+  const failedDemand = failed.some((gate) => gate.id === "demanda");
+  const noDemand = failedDemand && review.demandShape === "vacia";
   const steps = Math.min(
     3,
     failed.length + (noDemand ? 1 : 0) + (severe.length ? 1 : 0),
@@ -438,9 +461,7 @@ function capByGates(verdict: Verdict, review: ReturnType<typeof reviewExpertise>
     ...verdict,
     label: capped,
     tone: VERDICT_TONE[capped],
-    headline: noDemand
-      ? "Se busca, pero aquí no vende nadie: entrar mejor no arregla que no haya compradores."
-      : verdict.headline,
+    headline: demandHeadline(review.demandShape, failedDemand) ?? verdict.headline,
     reasoning: [
       ...verdict.reasoning,
       `Rebajado de «${verdict.label}» a «${capped}»: no cumple ${reasons.join(" ni ")}. ` +

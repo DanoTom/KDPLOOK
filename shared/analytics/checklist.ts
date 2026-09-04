@@ -1,6 +1,6 @@
 import type { AppSettings, BookRecord, MarketplaceId } from "../types";
 import type { ContentProfile, ContentType } from "./content";
-import { isPublishableBook } from "./book";
+import { DEAD_BSR, isPublishableBook } from "./book";
 import { CONTENT_PROFILES, formatCaveat, inferContentType } from "./content";
 
 /**
@@ -29,12 +29,26 @@ export interface RedFlag {
   detail: string;
 }
 
+/**
+ * Which half of the demand gate is missing.
+ *
+ * The gate asks for two things and can fail on either, and the two failures
+ * mean opposite things: a page where everybody sells weekly and nobody daily
+ * is a low ceiling; a page where nothing sells is an empty market. The verdict
+ * used to announce "aquí no vende nadie" for both, next to its own gate saying
+ * "10 de 10 con BSR ≤ 30.000". Naming the shape lets the headline — and the
+ * size of the penalty — follow the reading instead of contradicting it.
+ */
+export type DemandShape = "sana" | "sin-lider" | "sin-peloton" | "vacia";
+
 export interface ExpertReview {
   /** Which of the three businesses this niche is, and its own numbers. */
   profile: ContentProfile;
   /** Where the profile's reasoning does not transfer to this niche. */
   profileCaveat: string | null;
   gates: Gate[];
+  /** Null when no rank could be read, so the gate was not evaluated. */
+  demandShape: DemandShape | null;
   passed: number;
   evaluated: number;
   flags: RedFlag[];
@@ -75,8 +89,7 @@ export const PRICE_HEALTHY = 9.99;
  * one-star reviews. The next publisher in gets the same treatment.
  */
 export const RATING_TECHNICAL = 4.1;
-/** A rank this deep means the title is not selling at all. */
-export const DEAD_BSR = 2_000_000;
+export { DEAD_BSR };
 /** How many selling competitors the guide wants before calling demand proven. */
 export const MIN_PROVEN = 3;
 
@@ -93,6 +106,9 @@ export const MIN_PROVEN = 3;
  * either one alone there is no market to enter.
  */
 const PELOTON_MULTIPLE = 3;
+
+/** So the headline reads "los cuatro" and not "los 4". */
+const SPELLED = ["cero", "un", "dos", "tres", "cuatro"];
 
 export function reviewExpertise(
   items: BookRecord[],
@@ -142,10 +158,17 @@ export function reviewExpertise(
   const steady = enriched.filter((b) => (b.bsr ?? Infinity) <= peloton);
   const leader = enriched.length ? Math.min(...enriched.map((b) => b.bsr ?? Infinity)) : Infinity;
   const hasLeader = leader <= demandBsr;
+  const hasPeloton = steady.length >= MIN_PROVEN;
+  const demandShape: DemandShape | null =
+    enriched.length === 0 ? null
+    : hasLeader && hasPeloton ? "sana"
+    : hasPeloton ? "sin-lider"
+    : hasLeader ? "sin-peloton"
+    : "vacia";
   const demanda: Gate = {
     id: "demanda",
     label: "Demanda demostrada",
-    pass: enriched.length === 0 ? null : hasLeader && steady.length >= MIN_PROVEN,
+    pass: demandShape === null ? null : demandShape === "sana",
     value: enriched.length === 0 ? "sin BSR leído"
       : `${steady.length} de ${enriched.length} con BSR ≤ ${peloton.toLocaleString("es")}` +
         (hasLeader ? `, el mejor en ${leader.toLocaleString("es")}` : ""),
@@ -200,16 +223,22 @@ export function reviewExpertise(
     evaluated,
     profile,
     profileCaveat: formatCaveat(items, contentType),
-    flags: detectRedFlags(items, { marketplace, totalResults, demandBsr, selling, page1 }),
+    demandShape,
+    flags: detectRedFlags(items, { marketplace, totalResults, demandBsr, selling, steady, page1 }),
+    // A clean sweep of one gate is not a clean sweep: with three of the four
+    // unevaluable there is no reading to be enthusiastic about.
     tone:
       evaluated === 0 ? "unknown"
-      : passed === evaluated ? "great"
+      : passed === evaluated ? (evaluated >= 3 ? "great" : "good")
       : passed >= evaluated - 1 ? "good"
       : passed > 0 ? "mixed" : "bad",
     headline:
       evaluated === 0 ? "No hay datos suficientes para aplicar los criterios de entrada."
-      : passed === 3 ? "Cumple los tres criterios de entrada."
-      : `Cumple ${passed} de ${evaluated} criterios evaluados.`,
+      : passed === evaluated
+        ? evaluated >= 3
+          ? `Cumple los ${SPELLED[evaluated]} criterios de entrada.`
+          : `Cumple los ${SPELLED[evaluated]} criterios que se pudieron evaluar; faltan datos para el resto.`
+        : `Cumple ${passed} de ${evaluated} criterios evaluados.`,
   };
 }
 
@@ -218,7 +247,10 @@ function detectRedFlags(
   items: BookRecord[],
   ctx: {
     marketplace: MarketplaceId; totalResults: number | null; demandBsr: number;
-    selling: BookRecord[]; page1: BookRecord[];
+    selling: BookRecord[];
+    /** Selling weekly. In a small market this is the group that exists. */
+    steady: BookRecord[];
+    page1: BookRecord[];
   },
 ): RedFlag[] {
   const flags: RedFlag[] = [];
@@ -274,8 +306,16 @@ function detectRedFlags(
   // it belongs to a brand. Distinct from a publisher monopoly — plenty of
   // indies can be present, they just do not sell. This is the shape of a
   // keyword that gets typed constantly and bought by nobody new.
-  const sellingIndies = ctx.selling.filter((b) => b.selfPublished === true);
-  if (ctx.selling.length >= MIN_PROVEN && sellingIndies.length === 0) {
+  // Read against the peloton, not the daily bar: the same commit that split
+  // the two established that in Spain almost nothing clears the daily one, so
+  // a trap keyed to it would never fire on the market this tool is used in.
+  //
+  // And `selfPublished === true` is false both for a Penguin title and for one
+  // whose publisher line was never read — so require the field to have been
+  // read on enough of them before calling the absence of indies a finding.
+  const knownPublisher = ctx.steady.filter((b) => b.selfPublished !== null);
+  const sellingIndies = knownPublisher.filter((b) => b.selfPublished === true);
+  if (knownPublisher.length >= MIN_PROVEN && sellingIndies.length === 0) {
     flags.push({
       id: "marca-monopoliza",
       severity: "alto",
@@ -286,7 +326,7 @@ function detectRedFlags(
 
   // A niche whose sellers average under 4.1 stars is usually one KDP paper
   // cannot print well — not a niche of weak rivals waiting to be beaten.
-  const rated = ctx.selling.filter((b) => b.rating !== null);
+  const rated = ctx.steady.filter((b) => b.rating !== null);
   if (rated.length >= 3) {
     const avg = rated.reduce((sum, b) => sum + (b.rating ?? 0), 0) / rated.length;
     if (avg < RATING_TECHNICAL) {

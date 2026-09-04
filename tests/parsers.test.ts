@@ -439,11 +439,80 @@ console.log("\ncriterios de entrada del operador");
   check("sin banderas rojas", green.flags.length, 0);
 
   // --- the traps the guide says to walk away from ---------------------------
-  // Priced under the healthy floor, the royalty cannot fund a click.
+  // A whole page charging 7,50 is not an underpriced puzzle-book niche: it is
+  // a notebook niche, and 6-8 is what that business charges. So the price gate
+  // passes on its own floor — and the price-war flag, which is what "the
+  // royalty cannot fund a click" actually is, fires instead.
   const barato = reviewExpertise(evergreen.map((x) => ({ ...x, price: 7.5 })),
     { marketplace: "es", totalResults: 800, settings });
-  check("un nicho barato suspende el precio",
-    barato.gates.find((g) => g.id === "precio")?.pass, false);
+  check("un nicho a 7,50 se lee como bajo contenido", barato.profile.id, "bajo");
+  check("y su precio es el normal de ese negocio",
+    barato.gates.find((g) => g.id === "precio")?.pass, true);
+  truthy("pero salta la guerra de precios",
+    barato.flags.some((f) => f.id === "guerra-precios"));
+
+  // Between the two bands, though, it is a medio niche charging too little.
+  const flojo = reviewExpertise(evergreen.map((x) => ({ ...x, price: 8.5 })),
+    { marketplace: "es", totalResults: 800, settings });
+  check("a 8,50 sigue siendo medio contenido", flojo.profile.id, "medio");
+  check("y ahí sí suspende el precio",
+    flojo.gates.find((g) => g.id === "precio")?.pass, false);
+
+  // --- the four gates, and the two ways demand fails ------------------------
+  // Ten books selling weekly and none daily is a low ceiling, not an empty
+  // market. The verdict used to announce "aquí no vende nadie" beside its own
+  // gate reading "10 de 10 con BSR ≤ 30.000".
+  const techoBajo = Array.from({ length: 10 }, (_, i) => b(i + 1, { bsr: 12_000 + i * 900, ageMonths: 8 + i * 9 }));
+  const sinLider = reviewExpertise(techoBajo, { marketplace: "es", totalResults: 800, settings });
+  check("vender cada semana sin líder es 'sin-lider'", sinLider.demandShape, "sin-lider");
+  check("y la puerta de demanda suspende igual",
+    sinLider.gates.find((g) => g.id === "demanda")?.pass, false);
+  const vTecho = summariseNiche(techoBajo,
+    { keyword: "k", marketplace: "es", settings, totalResults: 800, resultsCountText: null });
+  truthy("y el titular habla del techo, no de que no venda nadie",
+    vTecho.verdict.headline.includes("techo") && !vTecho.verdict.headline.includes("no vende nadie"));
+
+  // One book carrying the whole niche is its own shape.
+  const soloUno = Array.from({ length: 10 }, (_, i) => b(i + 1, { bsr: i === 0 ? 4_000 : 900_000, ageMonths: 8 + i * 9 }));
+  check("un solo vendedor es 'sin-peloton'",
+    reviewExpertise(soloUno, { marketplace: "es", totalResults: 800, settings }).demandShape, "sin-peloton");
+
+  // And a page where nothing sells keeps the original text and the extra step.
+  const muerto = Array.from({ length: 10 }, (_, i) => b(i + 1, { bsr: 900_000 + i * 1_000, ageMonths: 8 + i * 9 }));
+  const vMuerto = summariseNiche(muerto,
+    { keyword: "k", marketplace: "es", settings, totalResults: 800, resultsCountText: null });
+  check("sin nadie vendiendo es 'vacia'",
+    reviewExpertise(muerto, { marketplace: "es", totalResults: 800, settings }).demandShape, "vacia");
+  truthy("y ahí sí se dice que no vende nadie", vMuerto.verdict.headline.includes("no vende nadie"));
+
+  // Three of four passing is not "cumple los cuatro criterios".
+  const tresDeCuatro = reviewExpertise(evergreen.map((x) => ({ ...x, price: 8.5 })),
+    { marketplace: "es", totalResults: 800, settings });
+  check("con una puerta roja no dice que cumple todo", tresDeCuatro.passed, 3);
+  check("y lo cuenta como 3 de 4", tresDeCuatro.headline, "Cumple 3 de 4 criterios evaluados.");
+  check("cumplirlas las cuatro sí se anuncia entero", green.headline, "Cumple los cuatro criterios de entrada.");
+
+  // One evaluable gate out of four is not a triumph.
+  const casiSinDatos = reviewExpertise(
+    evergreen.map((x) => ({ ...x, reviews: null, price: null, bsr: null })),
+    { marketplace: "es", totalResults: 800, settings });
+  check("una sola puerta evaluada no es un nicho excelente", casiSinDatos.tone, "good");
+
+  // A scraping gap is not a market finding: with no publisher line read on any
+  // of them, "ningún indie vende aquí" is a statement about the parser.
+  const sinEditorial = reviewExpertise(
+    Array.from({ length: 10 }, (_, i) => b(i + 1, { bsr: 4_000 + i * 100, selfPublished: null, ageMonths: 8 + i * 9 })),
+    { marketplace: "es", totalResults: 800, settings });
+  check("sin leer editoriales no acusa a ninguna marca",
+    sinEditorial.flags.some((f) => f.id === "marca-monopoliza"), false);
+
+  // Both traps read the peloton: keyed to the daily bar they could not fire in
+  // Spain at all, which is the market the peloton exists for.
+  const pelotonMalo = reviewExpertise(
+    Array.from({ length: 10 }, (_, i) => b(i + 1, { bsr: i === 0 ? 9_500 : 12_000 + i * 1_600, rating: 3.5, ageMonths: 8 + i * 9 })),
+    { marketplace: "es", totalResults: 800, settings });
+  truthy("la dificultad técnica se lee sobre el pelotón, no sobre el líder",
+    pelotonMalo.flags.some((f) => f.id === "dificultad-tecnica"));
 
   // The "Hábitos Atómicos" effect: it sells here, and no indie is among the
   // sellers. Searched constantly, bought from a brand.
@@ -940,6 +1009,19 @@ console.log("\noportunidad de una keyword");
   check("muy buscada pero saturada: dificil", crowded?.label, "Difícil");
   truthy("la saturacion pesa mas que la demanda", (crowded?.score ?? 100) < (green?.score ?? 0));
 
+  // The niche report judges 150 reseñas against alto's 100 and counts them
+  // against viability; the keyword screen said "alcanzable" on the flat 200.
+  const generico = keywordOpportunity({ demandProxy: 60, totalResults: 800, medianReviews: 150, lowReviewShare: 0.5 });
+  truthy("con el listón genérico 150 reseñas son alcanzables",
+    generico?.reason.includes("alcanzable"));
+  const conTipo = keywordOpportunity({
+    demandProxy: 60, totalResults: 800, medianReviews: 150, lowReviewShare: 0.5,
+    beatableReviews: CONTENT_PROFILES.alto.beatableReviews,
+  });
+  truthy("y con el del nicho ya no lo son", conTipo?.reason.includes("caro de alcanzar"));
+  truthy("y puntúa por debajo", (conTipo?.score ?? 0) < (generico?.score ?? 0));
+  truthy("diciendo siempre contra qué listón midió", generico?.reason.includes("listón 200"));
+
   const quiet = keywordOpportunity({ demandProxy: 10, totalResults: 300, medianReviews: 5, lowReviewShare: 0.9 });
   truthy("un nicho vacio que nadie busca no es una oportunidad", (quiet?.score ?? 100) < (green?.score ?? 0));
 }
@@ -1130,6 +1212,37 @@ console.log("\nlas palabras de los titulos que venden");
   // Two under the bar is still the strict reading.
   check("con dos que venden vuelve a la lectura estricta",
     analyseTitles(espana, 50_000).basis, "venden");
+
+  // Being the least dead listing on a dead page is not a pattern to copy.
+  const cementerio = analyseTitles([
+    b(1, "Agenda profesional para psicologos", 3_100_000),
+    b(2, "Agenda profesional de sesiones", 3_200_000),
+    b(3, "Agenda de flores", null),
+    b(4, "Agenda de gatitos", null),
+    b(5, "Agenda semanal", null),
+    b(6, "Agenda mensual", null),
+  ], 30_000);
+  check("no propone las palabras de fichas que no venden nada", cementerio.terms.length, 0);
+
+  // Fichas leídas y sin ranking: no han vendido, y su sitio en la estantería
+  // no dice nada. La posición solo vale cuando no se abrió ninguna ficha.
+  const leidasSinRank = [
+    b(1, "Agenda profesional para psicologos", 4_000),
+    b(2, "Agenda profesional clinica", null),
+    b(3, "Agenda profesional de sesiones", null),
+    b(4, "Agenda de flores", null),
+    b(5, "Agenda de gatitos", null),
+    b(6, "Agenda semanal", null),
+  ];
+  check("un solo libro vendiendo no da patrón", analyseTitles(leidasSinRank, 30_000).terms.length, 0);
+
+  // Escaneo rápido: no se abrió ninguna ficha, así que el orden de Amazon es
+  // lo único que hay — y ahí sí se usa.
+  const rapido = analyseTitles(
+    leidasSinRank.map((x) => ({ ...x, bsr: null, enriched: false })), 30_000);
+  check("sin abrir fichas se compara por posición", rapido.basis, "posicion");
+  check("y no enseña un ranking que no eligió el grupo", rapido.bestBsr, null);
+  truthy("pero sigue diciendo algo", rapido.terms.length > 0);
 }
 
 console.log("\nbajo, medio y alto contenido son tres negocios");
@@ -1155,6 +1268,28 @@ console.log("\nbajo, medio y alto contenido son tres negocios");
   check("una guía de no ficción es alto", inferContentType(niche({ pages: 160, price: 16.99 })), "alto");
   check("corto pero caro es un pasatiempos, no una libreta",
     inferContentType(niche({ pages: 84, price: 11.5 })), "medio");
+
+  // Bajo declares 100 páginas as its own sweet spot, so 100 páginas had to be
+  // reachable: it was not, and a journal niche failed a 9,99 floor it never
+  // had to meet.
+  check("el punto dulce de bajo contenido se clasifica como bajo",
+    inferContentType(niche({ pages: 100, price: 6.99 })), "bajo");
+  check("y las mismas páginas a 11 siguen siendo medio",
+    inferContentType(niche({ pages: 100, price: 11 })), "medio");
+
+  // 109-119 belonged to no profile while the classifier handed it to alto.
+  check("por encima de la tarifa plana se juzga como alto",
+    inferContentType(niche({ pages: 118, price: 16.99 })), "alto");
+  truthy("y el perfil alto cubre esas páginas",
+    CONTENT_PROFILES.alto.pagesLow <= 118);
+  // Long and cheap is a thick notebook, not a guide.
+  check("largo pero a precio de cuaderno es bajo contenido",
+    inferContentType(niche({ pages: 160, price: 6.99 })), "bajo");
+
+  // With no page counts read, price alone has to place all three.
+  check("sin páginas, un precio de cuaderno es bajo",
+    inferContentType(niche({ pages: null, price: 4.99 })), "bajo");
+  check("y uno de guía es alto", inferContentType(niche({ pages: null, price: 16.99 })), "alto");
 
   // A 200-page dated agenda prints and prices like a high-content book and is
   // judged as one — but the barrier is not the writing, and saying so matters.

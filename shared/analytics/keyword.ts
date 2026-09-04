@@ -8,8 +8,15 @@ import { RESULTS_GREEN, RESULTS_LIMIT, REVIEWS_BEATABLE, REVIEWS_UNREACHABLE } f
  * a phrase everyone searches and everyone already publishes for is worse than
  * a quieter one nobody has taken. This folds the demand proxy together with
  * what the search page actually shows — how many books compete, and how much
- * review history they carry — using the same thresholds the entry criteria
- * use, so the two screens cannot disagree.
+ * review history they carry.
+ *
+ * On the results count it uses the same limits as the entry criteria. On
+ * reviews it cannot: what makes a rival reachable depends on whether the niche
+ * is notebooks or non-fiction (300 / 200 / 100), and a keyword row carries no
+ * page counts to tell them apart. So it scores against the middle bar and says
+ * which bar it used, and the niche report — which does read page counts — is
+ * the screen that applies the right one. Callers that know the content type
+ * can pass `beatableReviews` and the two then agree exactly.
  *
  * It stays null until the keyword has been scored: guessing the competition
  * half would make every unscored row look equally promising, which is the
@@ -20,6 +27,8 @@ export interface KeywordOpportunityInput {
   totalResults: number | null;
   medianReviews: number | null;
   lowReviewShare: number | null;
+  /** The niche's own reachable-rival bar, when the caller knows it. */
+  beatableReviews?: number;
 }
 
 export interface KeywordOpportunity {
@@ -51,8 +60,8 @@ const RESULTS_ANCHORS: Array<[number, number]> = [
 ];
 
 /** Review history is the moat; the guide calls 200 beatable and 1000 not. */
-const REVIEWS_ANCHORS: Array<[number, number]> = [
-  [0, 100], [10, 92], [50, 78], [REVIEWS_BEATABLE, 50], [500, 24],
+const reviewAnchors = (beatable: number): Array<[number, number]> => [
+  [0, 100], [10, 92], [Math.min(50, beatable / 2), 78], [beatable, 50], [500, 24],
   [REVIEWS_UNREACHABLE, 8], [3_000, 2],
 ];
 
@@ -64,19 +73,20 @@ export function keywordOpportunity(input: KeywordOpportunityInput): KeywordOppor
 
   const demand = Math.max(0, Math.min(100, input.demandProxy));
   const results = totalResults !== null ? curve(totalResults, RESULTS_ANCHORS) : 50;
-  const reviews = medianReviews !== null ? curve(medianReviews, REVIEWS_ANCHORS) : 50;
+  const beatable = input.beatableReviews ?? REVIEWS_BEATABLE;
+  const reviews = medianReviews !== null ? curve(medianReviews, reviewAnchors(beatable)) : 50;
 
   let score = demand * 0.42 + results * 0.3 + reviews * 0.28;
   if (lowReviewShare !== null) score += (lowReviewShare - 0.4) * 14;
   score = Math.round(Math.max(0, Math.min(100, score)));
 
-  const reason = buildReason(demand, totalResults, medianReviews);
+  const reason = buildReason(demand, totalResults, medianReviews, beatable);
   if (score >= 62) return { score, label: "Entrar", tone: "good", reason };
   if (score >= 42) return { score, label: "Mirar", tone: "warn", reason };
   return { score, label: "Difícil", tone: "bad", reason };
 }
 
-function buildReason(demand: number, totalResults: number | null, medianReviews: number | null): string {
+function buildReason(demand: number, totalResults: number | null, medianReviews: number | null, beatable: number): string {
   const parts: string[] = [];
   parts.push(demand >= 60 ? "Amazon la sugiere mucho" : demand >= 35 ? "Amazon la sugiere a veces" : "Amazon apenas la sugiere");
   if (totalResults !== null) {
@@ -88,8 +98,8 @@ function buildReason(demand: number, totalResults: number | null, medianReviews:
   }
   if (medianReviews !== null) {
     parts.push(
-      medianReviews < REVIEWS_BEATABLE ? `mediana de ${Math.round(medianReviews)} reseñas: alcanzable`
-      : medianReviews < REVIEWS_UNREACHABLE ? `mediana de ${Math.round(medianReviews)} reseñas: caro de alcanzar`
+      medianReviews < beatable ? `mediana de ${Math.round(medianReviews)} reseñas: alcanzable (listón ${beatable})`
+      : medianReviews < REVIEWS_UNREACHABLE ? `mediana de ${Math.round(medianReviews)} reseñas: caro de alcanzar (listón ${beatable})`
       : `mediana de ${Math.round(medianReviews)} reseñas: fuera de alcance`,
     );
   }

@@ -1,5 +1,5 @@
 import type { BookRecord } from "../types";
-import { isPublishableBook } from "./book";
+import { DEAD_BSR, isPublishableBook } from "./book";
 
 /**
  * What the titles that sell have in common.
@@ -89,23 +89,39 @@ export function analyseTitles(items: BookRecord[], sellingBsr: number): TitleAna
   // First choice: the books that actually sell, on the same rank the entry
   // criteria use. Second: when almost nobody in this market clears that bar,
   // the best-ranked third of the page — still the books Amazon puts ahead of
-  // the rest, and the card says which reading it made. Last: no rank was
-  // published anywhere, so page order stands in.
+  // the rest, and the card says which reading it made.
+  //
+  // Page order is the last resort, and only when no rank was read anywhere —
+  // which the demand gate already treats as a scan that failed rather than a
+  // page where nothing sells. Once some ranks did come back, a listing without
+  // one has not sold, and its place on the shelf is not evidence of anything:
+  // letting page order stand in there quietly rescued the very case the rank
+  // floor exists to reject, a page whose best two listings sit three million
+  // deep.
+  const alive = ranked.filter((b) => b.bsr <= DEAD_BSR);
+  const selling = alive.filter((b) => b.bsr <= sellingBsr);
   let basis: TitleBasis;
   let sellers: BookRecord[];
-  const selling = ranked.filter((b) => b.bsr <= sellingBsr);
   if (selling.length >= 2) {
     basis = "venden";
     sellers = selling;
-  } else if (ranked.length >= 2) {
+  } else if (alive.length >= 2) {
     basis = "mejores";
-    sellers = ranked.slice(0, Math.max(2, Math.min(ranked.length - 1, Math.ceil(books.length / 3))));
-  } else {
+    sellers = alive.slice(0, Math.max(2, Math.min(alive.length - 1, Math.ceil(books.length / 3))));
+  } else if (ranked.length === 0) {
     basis = "posicion";
     sellers = books.slice(0, Math.max(3, Math.ceil(books.length / 3)));
+  } else {
+    // Ranks came back and nothing in them is selling. Nothing to copy.
+    basis = "mejores";
+    sellers = alive;
   }
 
-  const sellerRanks = sellers.map((b) => b.bsr).filter((v): v is number => v !== null);
+  // Only meaningful when the ranks are what chose the group; on page order
+  // they would read as a claim the reading never made.
+  const sellerRanks = basis === "posicion"
+    ? []
+    : sellers.map((b) => b.bsr).filter((v): v is number => v !== null);
   const empty = {
     terms: [] as TitleTerm[],
     basis,

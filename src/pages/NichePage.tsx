@@ -862,7 +862,7 @@ function TitleWordsCard({ items, marketplace }: { items: BookRecord[]; marketpla
       ? `De los ${analysis.analysed} títulos leídos, ${analysis.sellers} venden con regularidad. Esto es lo que dicen y los demás no.`
       : analysis.basis === "mejores"
         ? `Aquí casi nadie vende con regularidad, así que la comparación se hace con los ${analysis.sellers} mejor situados de los ${analysis.analysed} leídos (BSR ${fmt(analysis.bestBsr)} a ${fmt(analysis.worstBsr)}).`
-        : `Amazon no publica ranking en estas fichas, así que se comparan los ${analysis.sellers} primeros de la página con los ${analysis.analysed} leídos.`;
+        : `Casi ninguna ficha trae ranking, así que se comparan los ${analysis.sellers} primeros de la página con los ${analysis.analysed} leídos.`;
 
   const owned = analysis.terms.filter((t) => t.lift >= 1.4);
   const shared = analysis.terms.filter((t) => t.lift < 1.4);

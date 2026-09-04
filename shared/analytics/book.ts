@@ -25,3 +25,12 @@ export function isPublishableBook(book: BookRecord): boolean {
   if (!book.enriched) return true;
   return book.pages !== null || book.publisher !== null;
 }
+
+/**
+ * A rank this deep means the title is not selling at all.
+ *
+ * Lives here, with the other question every module asks of a result, so that
+ * the entry criteria and the title analysis can both read it without either
+ * importing the other.
+ */
+export const DEAD_BSR = 2_000_000;
