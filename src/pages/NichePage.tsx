@@ -13,6 +13,8 @@ import { reviewExpertise } from "../../shared/analytics/checklist";
 import { monthNames, seasonInsight } from "../../shared/analytics/season";
 import { findAngles } from "../../shared/analytics/angles";
 import { isPublishableBook } from "../../shared/analytics/book";
+import { analyseTitles } from "../../shared/analytics/titles";
+import { demandBsrFor } from "../../shared/analytics/checklist";
 import { useNicheScan, type Department } from "../lib/scan";
 import { Link, useRoute } from "../router";
 import { useApp, useSettings } from "../state";
@@ -383,6 +385,8 @@ function NicheReport({
           />
         </div>
       </div>
+
+      <TitleWordsCard items={items} marketplace={summary.marketplace} />
 
       <EntryPlanCard items={items} currency={currency} />
 
@@ -815,6 +819,72 @@ function ImportCapture() {
           </Button>
           {text ? <span className="small faint">{(text.length / 1024).toFixed(0)} KB</span> : null}
         </div>
+      </div>
+    </Card>
+  );
+}
+
+
+/**
+ * What the titles that sell have in common.
+ *
+ * The report says whether to enter; this says what to call the book. Every
+ * title on page one was already scanned and then discarded — and the useful
+ * question of them is not which words are frequent but which are frequent
+ * *among the books that sell*. "Agenda" is in all of them; "profesional" in
+ * four of the five sellers and none of the rest is worth knowing before naming
+ * anything.
+ */
+function TitleWordsCard({ items, marketplace }: { items: BookRecord[]; marketplace: NicheSummary["marketplace"] }) {
+  const analysis = useMemo(
+    () => analyseTitles(items, demandBsrFor(marketplace) * 3),
+    [items, marketplace],
+  );
+
+  if (!analysis.terms.length) return null;
+
+  const owned = analysis.terms.filter((t) => t.lift >= 1.4);
+  const shared = analysis.terms.filter((t) => t.lift < 1.4);
+
+  return (
+    <Card>
+      <CardHead
+        title="Las palabras de los que venden"
+        note={`De los ${analysis.analysed} títulos leídos, ${analysis.sellers} venden. Esto es lo que dicen y los demás no.`}
+      />
+      <div className="card-pad stack">
+        {owned.length ? (
+          <div>
+            <div className="small" style={{ marginBottom: 8 }}>
+              <strong>Las usan los que venden y casi nadie más.</strong> Son las candidatas para tu
+              título y tu subtítulo.
+            </div>
+            <div className="row-tight">
+              {owned.map((term) => (
+                <span key={term.term} title={`En ${term.inSelling} de ${analysis.sellers} que venden, y en ${term.inAll} de ${analysis.analysed} en total`}>
+                  <Badge tone="good">
+                    {term.term} <span className="faint">×{term.lift.toFixed(1)}</span>
+                  </Badge>
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {shared.length ? (
+          <div>
+            <div className="small faint" style={{ marginBottom: 8 }}>
+              Las dice todo el mundo: hacen falta para que te encuentren, pero no te distinguen.
+            </div>
+            <div className="row-tight">
+              {shared.map((term) => (
+                <span key={term.term} title={`En ${term.inSelling} de ${analysis.sellers} que venden`}>
+                  <Badge tone="neutral">{term.term}</Badge>
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </Card>
   );

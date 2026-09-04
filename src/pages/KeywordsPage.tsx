@@ -321,7 +321,7 @@ export function KeywordsPage() {
   return (
     <Layout
       title="Laboratorio de keywords"
-      subtitle="Expande una semilla con el autocompletado real de Amazon y mide la competencia de las mejores."
+      subtitle="El primer paso: descubre cómo busca la gente de verdad, antes de analizar ningún nicho."
       actions={
         keywords.length ? (
           <>
@@ -359,8 +359,8 @@ export function KeywordsPage() {
           </form>
           <div className="small faint" style={{ marginTop: 10 }}>
             {mode === "quick"
-              ? "Rápido: la semilla más el barrido alfabético (≈54 sondas al autocompletado). Si la frase no completa, prueba sola las rutas cercanas."
-              : "Profundo: añade rutas cercanas, sufijos, prefijos, preguntas y dígitos (≈110 sondas). Tarda más y devuelve cola larga."}
+              ? "Rápido: la semilla, el barrido alfabético y las rutas cercanas (≈66 sondas). Suficiente para la mayoría."
+              : "Profundo: añade sufijos, prefijos, preguntas y dígitos (≈110 sondas). Tarda más y saca cola muy larga."}
           </div>
         </Card>
 
@@ -520,9 +520,14 @@ export function KeywordsPage() {
           </Card>
         ) : !progress ? (
           <Card>
-            <Empty icon="🔤" title="Sin resultados todavía">
-              El autocompletado de Amazon es la fuente más honesta de intención de búsqueda que existe sin pagar:
-              son las consultas que sus propios usuarios escriben. Empieza con una semilla amplia.
+            <Empty icon="🔤" title="Empieza por cómo busca la gente, no por tu idea">
+              El error caro es escribir el libro primero y buscarle mercado después. Aquí se hace al
+              revés: pones un tema y Amazon te dice, con su propio autocompletado, las frases que sus
+              usuarios teclean de verdad. De esa lista eliges dos o tres, las mandas a{" "}
+              <Link to="/nicho">Explorar nicho</Link>, y solo entonces decides si hay libro que hacer.
+              <br /><br />
+              Semillas amplias («agenda», «acertijos») abren más camino que frases largas; para bajar,
+              usa <strong>Explorar</strong> en la fila que te interese.
             </Empty>
           </Card>
         ) : null}

@@ -23,6 +23,7 @@ import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import { RESULTS_GREEN, RESULTS_LIMIT } from "../shared/analytics/checklist";
 import { isPublishableBook } from "../shared/analytics/book";
 import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content";
+import { analyseTitles } from "../shared/analytics/titles";
 import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
 import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
@@ -1058,6 +1059,49 @@ console.log("\nrivales: resenas leidas contra el ranking");
     publishedAt: new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10),
   });
   truthy("un lanzamiento vendiendo y sin reseñas es la presa fácil", reciente > 90);
+}
+
+console.log("\nlas palabras de los titulos que venden");
+{
+  const b = (i: number, title: string, bsr: number | null): BookRecord => ({
+    asin: `B0${String(i).padStart(8, "0")}`, title, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 12, rating: 4.4, reviews: 10,
+    sponsored: false, kindleUnlimited: false, position: i, bsr, categoryRanks: [], pages: 120,
+    publisher: "Independently published", publishedAt: null, language: null, isbn: null,
+    dimensions: null, selfPublished: true, enriched: true, salesPerMonth: null,
+    revenuePerMonth: null, royaltyPerUnit: null, ageMonths: 20, weakness: null,
+  });
+
+  // Everybody says "agenda". Only the ones that sell say "profesional".
+  const page = [
+    b(1, "Agenda profesional para psicologos 2027", 8_000),
+    b(2, "Agenda profesional clinica", 12_000),
+    b(3, "Agenda profesional de sesiones", 15_000),
+    b(4, "Agenda bonita de flores", 900_000),
+    b(5, "Agenda semanal rosa", 800_000),
+    b(6, "Agenda de gatitos", 1_200_000),
+  ];
+  const found = analyseTitles(page, 30_000);
+  check("cuenta cuáles venden", found.sellers, 3);
+
+  const profesional = found.terms.find((t) => t.term === "profesional");
+  truthy("encuentra la palabra que solo usan los que venden", Boolean(profesional));
+  check("y en cuántos de ellos aparece", profesional?.inSelling, 3);
+  truthy("con un peso mayor que 1", (profesional?.lift ?? 0) > 1.4);
+
+  // "agenda" is in all six, so it distinguishes nothing.
+  const agenda = found.terms.find((t) => t.term === "agenda");
+  truthy("la palabra que dice todo el mundo no destaca", (agenda?.lift ?? 9) <= 1.1);
+
+  // Pairs matter more than vocabulary: titles are bought on phrases.
+  truthy("encuentra también parejas de palabras", found.terms.some((t) => t.words === 2));
+
+  // One seller using a word is a coincidence, not a pattern.
+  check("una sola aparición no cuenta como patrón",
+    found.terms.some((t) => t.term === "clinica"), false);
+
+  // Too little to say anything is better than saying it badly.
+  check("con muy pocos libros no opina", analyseTitles(page.slice(0, 3), 30_000).terms.length, 0);
 }
 
 console.log("\nbajo, medio y alto contenido son tres negocios");
