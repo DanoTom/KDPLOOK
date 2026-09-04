@@ -104,6 +104,29 @@ function buildHeaders(targetUrl: string, language: string, seed: number): Header
 }
 
 /** Wrap the target URL in whichever scraping provider the user configured. */
+/**
+ * ISO country to route a proxied request through, from the storefront being
+ * asked. Providers default to the United States, and Amazon.es answered from a
+ * US address is not the Amazon.es a shopper in Spain sees — different
+ * experience, sometimes a redirect, and results that do not match the store the
+ * report claims to describe.
+ */
+const PROXY_COUNTRY: Record<string, string> = {
+  "amazon.com": "us", "amazon.co.uk": "gb", "amazon.de": "de", "amazon.fr": "fr",
+  "amazon.es": "es", "amazon.it": "it", "amazon.co.jp": "jp", "amazon.ca": "ca",
+  "amazon.com.au": "au", "amazon.com.mx": "mx", "amazon.com.br": "br",
+  "amazon.in": "in", "amazon.nl": "nl", "amazon.pl": "pl", "amazon.se": "se",
+};
+
+function countryFor(targetUrl: string): string | null {
+  try {
+    const host = new URL(targetUrl).hostname.replace(/^www\./, "");
+    return PROXY_COUNTRY[host] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function wrapWithProvider(
   targetUrl: string,
   settings: AppSettings,
@@ -114,21 +137,22 @@ function wrapWithProvider(
    *
    * The autocomplete endpoint has never been refused — a deep expansion fires
    * over a hundred probes and they come back — while search and detail pages are
-   * exactly what gets blocked. A scraping provider's free tier is around a
-   * thousand calls a month, so routing the probes through it would spend the
-   * whole allowance in three expansions and leave nothing for the pages that
-   * actually need it.
+   * exactly what gets blocked. Provider credits are scarce and not free (a trial,
+   * then tens of dollars a month), so routing the probes through one would spend
+   * an allowance meant for the pages that actually need help.
    */
   cheap = false,
 ): { url: string; provider: string; direct: boolean } {
   if (cheap) return { url: targetUrl, provider: "direct", direct: true };
   const encoded = encodeURIComponent(targetUrl);
+  const country = countryFor(targetUrl);
   switch (settings.provider) {
     case "scraperapi": {
       const key = env.SCRAPER_API_KEY;
       if (!key) break;
       return {
-        url: `https://api.scraperapi.com/?api_key=${encodeURIComponent(key)}&url=${encoded}&keep_headers=true`,
+        url: `https://api.scraperapi.com/?api_key=${encodeURIComponent(key)}&url=${encoded}&keep_headers=true`
+          + (country ? `&country_code=${country}` : ""),
         provider: "scraperapi",
         direct: false,
       };
@@ -137,7 +161,8 @@ function wrapWithProvider(
       const key = env.SCRAPINGBEE_API_KEY;
       if (!key) break;
       return {
-        url: `https://app.scrapingbee.com/api/v1/?api_key=${encodeURIComponent(key)}&url=${encoded}&render_js=false&forward_headers=true`,
+        url: `https://app.scrapingbee.com/api/v1/?api_key=${encodeURIComponent(key)}&url=${encoded}&render_js=false&forward_headers=true`
+          + (country ? `&country_code=${country}` : ""),
         provider: "scrapingbee",
         direct: false,
       };

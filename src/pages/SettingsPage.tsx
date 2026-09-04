@@ -74,7 +74,7 @@ export function SettingsPage() {
           <div className="card-pad stack">
             <Field
               label="Proveedor"
-              help="«Directo» va desde Cloudflare a Amazon sin intermediarios: gratis, pero Amazon bloquea a veces las IP de centros de datos. Si te bloquean con frecuencia, un proveedor de scraping con capa gratuita resuelve el problema."
+              help="«Directo» va desde Cloudflare a Amazon sin intermediarios: gratis, pero Amazon bloquea a veces las IP de centros de datos y a otras les sirve una página recortada. Un proveedor de scraping sale desde IPs residenciales del país de la tienda; no son gratis (prueba de unos días y luego decenas de dólares al mes), así que úsalos solo mientras te haga falta."
             >
               <select className="select" value={settings.provider} onChange={(e) => set("provider", e.target.value as AppSettings["provider"])}>
                 <option value="direct">Directo (sin proveedor)</option>
