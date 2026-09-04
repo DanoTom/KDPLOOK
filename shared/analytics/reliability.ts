@@ -66,7 +66,7 @@ export interface ReliabilityInput {
  * handful of orders, and multiplying it by thirty still invents a month. The
  * two numbers measure different things and are deliberately not the same.
  */
-const LAUNCH_MONTHS = 2;
+export const LAUNCH_MONTHS = 2;
 /** Until roughly here the rank still carries the launch, just less of it. */
 const SETTLING_MONTHS = 4;
 /** Ranks spread this wide over a week make any single reading a coin toss. */

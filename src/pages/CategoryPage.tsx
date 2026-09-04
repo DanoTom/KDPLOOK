@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BookRecord, CategoryChild, CategoryStats, MarketplaceId } from "../../shared/types";
 import { deriveMetrics } from "../../shared/analytics/score";
 import { summariseCategory } from "../../shared/analytics/category";
-import { ApiError, api, type ProductDetailDto } from "../api";
+import { ApiError, api } from "../api";
 import { BookTable } from "../components/BookTable";
 import { Gauge } from "../components/charts";
 import { Icon } from "../components/icons";
 import { Layout } from "../components/Layout";
 import { Alert, Badge, Button, Card, CardHead, Empty, Field, Kpi, Progress, SegmentedControl } from "../components/ui";
+import { bookFromDetail } from "../lib/book";
 import { downloadCsv, toCsv } from "../lib/csv";
 import { fmtCompact, fmtInt, fmtMoney, fmtPct, slug } from "../lib/format";
 import { useApp } from "../state";
@@ -293,35 +294,3 @@ export function CategoryPage() {
 }
 
 /** A bestseller entry known only from its detail page. */
-function bookFromDetail(detail: ProductDetailDto, marketplace: MarketplaceId, position: number): BookRecord {
-  return {
-    asin: detail.asin,
-    title: detail.title ?? detail.asin,
-    author: detail.author ?? "",
-    url: `https://www.amazon.${marketplace}/dp/${detail.asin}`,
-    image: detail.image ?? "",
-    format: detail.format ?? "paperback",
-    formatLabel: detail.formatLabel ?? "",
-    price: detail.price,
-    rating: detail.rating,
-    reviews: detail.reviews,
-    sponsored: false,
-    kindleUnlimited: Boolean((detail as { kindleUnlimited?: boolean }).kindleUnlimited),
-    position,
-    bsr: detail.bsr,
-    categoryRanks: detail.categoryRanks ?? [],
-    pages: detail.pages,
-    publisher: detail.publisher,
-    publishedAt: detail.publishedAt,
-    language: detail.language,
-    isbn: detail.isbn,
-    dimensions: detail.dimensions,
-    selfPublished: detail.selfPublished,
-    enriched: true,
-    salesPerMonth: null,
-    revenuePerMonth: null,
-    royaltyPerUnit: null,
-    ageMonths: null,
-    weakness: null,
-  };
-}

@@ -56,7 +56,7 @@ export interface TitleAnalysis {
  * Words that carry no positioning. Kept deliberately short: a stoplist that
  * removes too much hides the phrases the analysis exists to find.
  */
-const STOPWORDS = new Set([
+export const STOPWORDS = new Set([
   "de", "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "o", "a",
   "en", "con", "por", "para", "del", "al", "su", "sus", "lo", "que", "se",
   "más", "mas", "the", "of", "and", "for", "with", "to", "in", "a", "an",
@@ -64,17 +64,23 @@ const STOPWORDS = new Set([
   "vol", "volumen", "nuevo", "nueva",
 ]);
 
-function tokenise(title: string): string[] {
+/** The title as words, punctuation gone and nothing else removed. */
+export function splitTitleWords(title: string): string[] {
   return title
     .toLowerCase()
     .replace(/[|:;,.()¡!¿?"'«»\-–—/+]/g, " ")
     .split(/\s+/)
+    .filter(Boolean);
+}
+
+export function tokeniseTitle(title: string): string[] {
+  return splitTitleWords(title)
     .filter((word) => word.length >= 3 && !STOPWORDS.has(word) && !/^\d+$/.test(word));
 }
 
 /** Single words and adjacent pairs, deduplicated within one title. */
 function termsIn(title: string): Set<string> {
-  const words = tokenise(title);
+  const words = tokeniseTitle(title);
   const out = new Set<string>(words);
   for (let i = 0; i + 1 < words.length; i++) out.add(`${words[i]} ${words[i + 1]}`);
   return out;

@@ -57,8 +57,15 @@ export function Dashboard() {
               value={keyword} onChange={(event) => setKeyword(event.target.value)}
             />
             <Button type="submit" variant="primary" icon={<Icon.Search size={16} />}>Analizar nicho</Button>
-            <Link to="/keywords" className="btn"><Icon.Tag size={15} /> Buscar ideas</Link>
+            {/* This pointed at the keyword lab, which also needs a phrase to
+                start from — so on the day nothing comes to mind both halves of
+                this box were the same dead end. */}
+            <Link to="/ideas" className="btn"><Icon.Compass size={15} /> No sé por dónde empezar</Link>
           </form>
+          <div className="small faint" style={{ marginTop: 8 }}>
+            La caja es para cuando ya tienes la frase. Si no la tienes, el otro botón lee las
+            portadas de los que ya venden y te dice de qué van.
+          </div>
         </Card>
 
         {setupIssues.length ? (

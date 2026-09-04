@@ -24,6 +24,7 @@ import { RESULTS_GREEN, RESULTS_LIMIT } from "../shared/analytics/checklist";
 import { isPublishableBook } from "../shared/analytics/book";
 import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content";
 import { analyseTitles } from "../shared/analytics/titles";
+import { discoverIdeas } from "../shared/analytics/discover";
 import { seasonInsight } from "../shared/analytics/season";
 import { findAngles } from "../shared/analytics/angles";
 import { assessEstimate, estimateRange, readSeries } from "../shared/analytics/reliability";
@@ -1470,6 +1471,71 @@ console.log("\ntarifas de impresion deducidas de libros propios");
   check("un coste que baja con las paginas se rechaza",
     solvePrintingRates([{ pages: 200, cost: 5 }, { pages: 400, cost: 3 }], 108).perPage, null);
   check("y sin muestras no inventa nada", solvePrintingRates([], 108).flatFee, null);
+}
+
+console.log("\nde donde salen las ideas");
+{
+  const b = (i: number, title: string, over: Partial<BookRecord> = {}): BookRecord => ({
+    asin: `B0${String(i).padStart(8, "0")}`, title, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 15.99, rating: 4.4, reviews: 40,
+    sponsored: false, kindleUnlimited: false, position: i, bsr: 5_000 + i * 400, categoryRanks: [],
+    pages: 160, publisher: "Independently published", publishedAt: null, language: null, isbn: null,
+    dimensions: null, selfPublished: true, enriched: true, salesPerMonth: 40, revenuePerMonth: 200,
+    royaltyPerUnit: 6, ageMonths: 40, weakness: 60, ...over,
+  });
+
+  // A cookery bestseller list: "recetas" is the shelf, "sin gluten" is a niche.
+  const lista = [
+    b(1, "Recetas sin gluten para principiantes", { ageMonths: 5 }),
+    b(2, "Recetas sin gluten para toda la familia", { ageMonths: 7 }),
+    b(3, "Recetas sin gluten de temporada", { ageMonths: 30 }),
+    b(4, "Recetas de la abuela"),
+    b(5, "Recetas rápidas de horno"),
+    b(6, "Recetas de cocina italiana"),
+    b(7, "Recetas veganas de invierno"),
+    b(8, "Recetas para freidora de aire"),
+    b(9, "Recetas de pan casero"),
+    b(10, "Recetas de repostería"),
+  ];
+  const found = discoverIdeas(lista);
+  // La frase entera, no el trozo: es la que se escribe en el buscador.
+  const gluten = found.phrases.find((p) => p.term === "recetas sin gluten");
+  truthy("encuentra el subnicho que se repite", Boolean(gluten));
+  check("y cuántos libros lo llevan", gluten?.books, 3);
+  check("y cuántos son recientes", gluten?.young, 2);
+  truthy("y enseña títulos reales", (gluten?.examples.length ?? 0) > 0);
+
+  // Present in every title: that is the shelf's name, not an idea.
+  check("la palabra de toda la categoría no es una idea",
+    found.phrases.some((p) => p.term === "recetas"), false);
+
+  // The longer phrase wins and the fragments inside it are dropped.
+  check("no propone el trozo suelto de una frase que ya propuso",
+    found.phrases.some((p) => p.term === "gluten" || p.term === "sin gluten"), false);
+
+  // Las frases se arman con las palabras tal como están escritas: quitar las
+  // vacías primero uniría palabras que nunca estuvieron juntas y propondría
+  // "recetas cocina", que no la busca nadie.
+  const cocina = discoverIdeas([...lista,
+    b(11, "Recetas de cocina francesa", { ageMonths: 6 })]);
+  check("no inventa frases que nadie escribe",
+    cocina.phrases.some((p) => p.term === "recetas cocina"), false);
+  truthy("y conserva la frase de verdad",
+    cocina.phrases.some((p) => p.term === "recetas de cocina"));
+
+  // Books young enough to prove the door is open today.
+  check("lista los libros jóvenes que ya venden", found.young.length, 2);
+  check("el mejor situado primero", found.young[0]?.book.asin, "B000000001");
+  check("y dice cuántos traían fecha", found.dated, 10);
+
+  // A book two weeks old is a launch, not a rate — the same window the
+  // estimate uses, and it has to be flagged as such.
+  const recien = discoverIdeas([...lista, b(11, "Recetas sin gluten exprés", { ageMonths: 0.5 })]);
+  truthy("y avisa de que uno acaba de salir",
+    recien.young.some((y) => y.launching));
+
+  // Too short a list to tell a subniche from the shelf's own name.
+  check("con una lista corta no opina", discoverIdeas(lista.slice(0, 4)).phrases.length, 0);
 }
 
 console.log(`\n${passed} pruebas superadas, ${failed} fallidas\n`);

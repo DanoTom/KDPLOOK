@@ -5,6 +5,7 @@ import { RouterProvider, useRoute } from "./router";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { NichePage } from "./pages/NichePage";
+import { IdeasPage } from "./pages/IdeasPage";
 import { KeywordsPage } from "./pages/KeywordsPage";
 import { CategoryPage } from "./pages/CategoryPage";
 import { BookPage } from "./pages/BookPage";
@@ -55,6 +56,7 @@ function Routes() {
     return <div className="login-wrap"><span className="spinner" style={{ width: 26, height: 26 }} /></div>;
   }
 
+  if (path.startsWith("/ideas")) return <IdeasPage />;
   if (path.startsWith("/nicho")) return <NichePage />;
   if (path.startsWith("/keywords")) return <KeywordsPage />;
   if (path.startsWith("/categorias")) return <CategoryPage />;

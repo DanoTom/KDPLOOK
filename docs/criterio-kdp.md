@@ -440,6 +440,45 @@ reales. Los que cambian lo que lee el usuario:
   usa el listón medio y ahora lo dice («listón 200»); el informe, que sí las
   tiene, aplica el del nicho.
 
+## De dónde salen las ideas (sept. 2026)
+
+Hasta aquí la app era un **verificador**: todas las pantallas empiezan con una
+caja vacía y hace falta traer la frase de fuera. El día que no se te ocurre
+nada, no sirve de nada — y la pantalla de categorías tampoco, porque enseña la
+**cima** de la categoría, que es su parte más genérica y más disputada. El
+subnicho no está arriba.
+
+Pero está escrito en las portadas. Un libro llamado «Dieta mediterránea para
+adultos mayores», con BSR 4.000 y publicado hace cinco meses, *es* el hallazgo.
+Una lista de más vendidos son cien de esos. Así que la pantalla nueva lee la
+lista que ya se descargaba y hace dos preguntas:
+
+1. **Qué frases se repiten entre los títulos que venden.** Son subnichos que la
+   propia categoría señala.
+2. **Cuáles de esos libros son jóvenes.** Un libro de hace cinco meses que ya
+   está en la lista demuestra que la puerta está abierta *hoy*, no en 2019.
+
+Ninguna de las dos pide una descarga nueva.
+
+### Las tres reglas que costaron una pasada de revisión visual
+
+Al mirar la pantalla renderizada, el minero proponía **«sin»**, **«toda»** y
+**«recetas»** como ideas de nicho, y las ponía *por encima* de «recetas sin
+gluten». Tres correcciones, todas por la misma razón de fondo — repetir mucho
+es lo que hace el vocabulario de la categoría, no un hueco en ella:
+
+- **Dos palabras con significado como mínimo.** Un nicho es una cosa más un
+  calificativo; una palabra suelta es el estante.
+- **La repetición satura pronto** (a partir de cuatro libros ya no suma), y una
+  frase más afilada pesa más que un libro más.
+- **Las frases se arman con las palabras tal como están escritas**, y se
+  recortan por los bordes. Quitar antes las palabras vacías unía términos que
+  nunca estuvieron juntos y proponía «recetas cocina», que no la busca nadie.
+
+Y la caja del panel de inicio ya no manda al laboratorio de keywords cuando
+dices que no sabes por dónde empezar: el laboratorio también necesita una
+frase, así que las dos mitades de esa caja llevaban al mismo sitio.
+
 ### Lo que sigue pendiente
 
 - **Las 10 categorías**: siguen existiendo en 2026, pero por ticket a soporte,
