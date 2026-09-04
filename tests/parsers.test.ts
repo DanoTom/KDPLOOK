@@ -18,7 +18,7 @@ import { parseDate, parseInteger, parsePrice } from "../worker/amazon/html";
 import { calibrationFor, salesPerMonth, suggestCalibration } from "../shared/analytics/bsr";
 import { DEFAULT_PRINTING_COSTS, computeRoyalty, printingCost, solvePrintingRates } from "../shared/analytics/royalty";
 import { buildEntryPlan } from "../shared/analytics/entry";
-import { summariseNiche } from "../shared/analytics/score";
+import { deriveMetrics, summariseNiche } from "../shared/analytics/score";
 import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import { RESULTS_GREEN, RESULTS_LIMIT } from "../shared/analytics/checklist";
 import { isPublishableBook } from "../shared/analytics/book";
@@ -428,10 +428,42 @@ console.log("\ncriterios de entrada del operador");
   check("umbral de BSR para espana", demandBsrFor("es"), 10_000);
   check("umbral de BSR para estados unidos", demandBsrFor("com"), 300_000);
 
-  const green = reviewExpertise(Array.from({ length: 10 }, (_, i) => b(i + 1)),
-    { marketplace: "es", totalResults: 800, settings });
-  check("nicho verde pasa los tres", green.passed, 3);
+  // A healthy evergreen niche has a spread of ages: books that have been
+  // selling for years alongside recent ones. Ten titles all under two years old
+  // is the shape of a fashion, and is tested as such below.
+  const evergreen = Array.from({ length: 10 }, (_, i) => b(i + 1, { ageMonths: 8 + i * 9 }));
+  const green = reviewExpertise(evergreen, { marketplace: "es", totalResults: 800, settings });
+  check("nicho verde pasa los cuatro criterios", green.passed, 4);
   check("sin banderas rojas", green.flags.length, 0);
+
+  // --- the traps the guide says to walk away from ---------------------------
+  // Priced under the healthy floor, the royalty cannot fund a click.
+  const barato = reviewExpertise(evergreen.map((x) => ({ ...x, price: 7.5 })),
+    { marketplace: "es", totalResults: 800, settings });
+  check("un nicho barato suspende el precio",
+    barato.gates.find((g) => g.id === "precio")?.pass, false);
+
+  // The "Hábitos Atómicos" effect: it sells here, and no indie is among the
+  // sellers. Searched constantly, bought from a brand.
+  const marca = reviewExpertise(
+    evergreen.map((x, i) => ({ ...x, selfPublished: i < 4 ? false : true, bsr: i < 4 ? 6_000 : 900_000 })),
+    { marketplace: "es", totalResults: 800, settings },
+  );
+  truthy("detecta que las ventas se las lleva una marca",
+    marca.flags.some((f) => f.id === "marca-monopoliza"));
+
+  // Sellers averaging under 4.1 stars in a visual niche means KDP's paper, not
+  // weak rivals — the next publisher gets the same one-star reviews.
+  const tecnico = reviewExpertise(evergreen.map((x) => ({ ...x, rating: 3.8 })),
+    { marketplace: "es", totalResults: 800, settings });
+  truthy("avisa de un nicho que el papel de KDP no imprime bien",
+    tecnico.flags.some((f) => f.id === "dificultad-tecnica"));
+
+  // No book older than two years: a fashion, not a market.
+  const moda = reviewExpertise(evergreen.map((x) => ({ ...x, ageMonths: 9 })),
+    { marketplace: "es", totalResults: 800, settings });
+  truthy("y de un tema sin catálogo consolidado",
+    moda.flags.some((f) => f.id === "moda-pasajera"));
 
   const crowded = reviewExpertise(Array.from({ length: 10 }, (_, i) => b(i + 1)),
     { marketplace: "es", totalResults: 12_000, settings });
@@ -997,6 +1029,34 @@ console.log("\npapeleria comercial fuera de las cifras del nicho");
     keyword: "agenda psicologo", marketplace: "es", settings, totalResults: 2100, resultsCountText: null,
   });
   check("un nicho limpio no lleva el aviso", clean.signals.some((sig) => sig.id === "nonbooks"), false);
+}
+
+console.log("\nrivales: resenas leidas contra el ranking");
+{
+  const settings = { printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100 } as unknown as AppSettings;
+  const base: BookRecord = {
+    asin: "B0", title: "t", author: "a", url: "", image: "x", format: "paperback", formatLabel: "",
+    price: 12, rating: 4.4, reviews: 1000, sponsored: false, kindleUnlimited: false, position: 1,
+    bsr: 5_000, categoryRanks: [], pages: 120, publisher: "Independently published",
+    publishedAt: null, language: null, isbn: null, dimensions: null, selfPublished: true,
+    enriched: true, salesPerMonth: null, revenuePerMonth: null, royaltyPerUnit: null,
+    ageMonths: null, weakness: null,
+  };
+  const weak = (over: Partial<BookRecord>) => deriveMetrics({ ...base, ...over }, "es", settings).weakness ?? 0;
+
+  // Social proof only defends a book that is still selling. A thousand reviews
+  // with the rank in the hundreds of thousands is a title whose moment passed.
+  const vivo = weak({});
+  const muerto = weak({ bsr: 800_000 });
+  truthy("mil reseñas vendiendo es un rival duro", vivo < 40);
+  truthy("las mismas mil con el ranking muerto, no", muerto > vivo + 20);
+
+  // A launch already selling without reviews yet is the softest target there is.
+  const reciente = weak({
+    reviews: 3, bsr: 8_000,
+    publishedAt: new Date(Date.now() - 20 * 864e5).toISOString().slice(0, 10),
+  });
+  truthy("un lanzamiento vendiendo y sin reseñas es la presa fácil", reciente > 90);
 }
 
 console.log("\nel veredicto no puede superar a los criterios de entrada");

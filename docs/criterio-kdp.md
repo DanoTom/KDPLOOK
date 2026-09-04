@@ -285,3 +285,55 @@ El balance entre el número de páginas, el costo de impresión de Amazon y el p
 
 ---
 *Este documento ha sido generado por Gemini Notebook para servir como manual de consulta definitivo y mapa de ruta para operadores independientes de KDP.*
+
+---
+
+## Ampliación: respuestas de editores con experiencia (sept. 2026)
+
+Añadido tras consultar material de editores en activo. Lo que sigue es lo que
+cambió en el código, no un resumen del material.
+
+### El embudo, en orden
+
+Un editor con oficio valida en este orden y **descarta en el primer no**, antes
+de escribir una palabra:
+
+1. **Autocompletado** en incógnito — la intención de búsqueda real.
+2. **Marca registrada** (WIPO, clase 16). Una keyword con marca o celebridad
+   cierra la cuenta. Ninguna herramienta lo resuelve: es el único paso que se
+   comprueba a mano, y por eso ahora encabeza los criterios con enlace directo.
+3. **Competencia** ≤ 2.000 resultados (óptimo ≤ 1.000).
+4. **Demanda** ≥ 3 libros independientes vendiendo a diario.
+5. **Reseñas** — con competidores por debajo de 200, luz verde; una página
+   entera por encima de 1.000 es inalcanzable de frente.
+6. **Precio** mediano ≥ 9,99. Por debajo la regalía no financia un clic.
+
+El paso 6 no existía como criterio; ahora es el cuarto filtro.
+
+### Las trampas que se añadieron
+
+- **La marca se lleva las búsquedas** (*el efecto «Hábitos Atómicos»*). Se vende
+  en el nicho pero **ningún independiente** está entre los que venden: el
+  volumen pertenece a un título de marca y quien busca ya sabe qué quiere.
+  Publicar ahí da impresiones y cero compras. Es distinto del monopolio
+  editorial: puede haber muchos indies, simplemente no venden.
+- **Nicho que el papel de KDP no imprime bien.** Los que venden promedian menos
+  de 4,1★. En nichos visuales eso no son rivales flojos: es la calidad de
+  impresión, y el siguiente en publicar se lleva las mismas reseñas de una
+  estrella. Antes la app leía una valoración baja como algo *a favor*.
+- **Sin catálogo consolidado.** Ningún libro de la primera página pasa de dos
+  años: una moda, no un mercado.
+
+### Reseñas contra ranking, no reseñas a secas
+
+La prueba social solo defiende a un libro **que sigue vendiendo**. Mil reseñas
+con el BSR en cientos de miles es un libro cuyo momento pasó — contenido o
+portada obsoletos — y es lo más fácil de desplazar de la página. Y un
+lanzamiento de pocas semanas que ya vende **sin reseñas todavía** es la presa
+más blanda que hay, y a la que apuntar con anuncios por ASIN.
+
+La ventana de «luna de miel» son unos **30 días**, y ese es el número que usa
+el cálculo de *rival alcanzable*. El aviso de «léelo como techo» sigue en dos
+meses a propósito: mide otra cosa — no cuánta ayuda le da Amazon al libro, sino
+cuánta historia de ventas hay detrás de su ranking. A los dos meses, un título
+con anuncios sigue teniendo un ranking hecho de un puñado de pedidos.

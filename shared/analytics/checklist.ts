@@ -12,7 +12,7 @@ import { isPublishableBook } from "./book";
  */
 
 export interface Gate {
-  id: "competencia" | "demanda" | "viabilidad";
+  id: "competencia" | "demanda" | "viabilidad" | "precio";
   label: string;
   pass: boolean | null;
   value: string;
@@ -60,6 +60,15 @@ export const REVIEWS_BEATABLE = 200;
 export const REVIEWS_UNREACHABLE = 1_000;
 /** Below this list price a low-content title cannot fund its own advertising. */
 export const PRICE_WAR_BELOW = 8;
+/** The guide's floor for a healthy royalty once printing is paid. */
+export const PRICE_HEALTHY = 9.99;
+/**
+ * Average ratings below this do not mean weak rivals. In visually demanding
+ * niches — detailed illustration, photography, coin or stamp catalogues — it
+ * means KDP's own paper cannot render the book well, and buyers say so in
+ * one-star reviews. The next publisher in gets the same treatment.
+ */
+export const RATING_TECHNICAL = 4.1;
 /** A rank this deep means the title is not selling at all. */
 export const DEAD_BSR = 2_000_000;
 /** How many selling competitors the guide wants before calling demand proven. */
@@ -127,7 +136,22 @@ export function reviewExpertise(
       : "La primera página está consolidada; entrar exige meses de posicionamiento sostenido.",
   };
 
-  const gates = [competencia, demanda, viabilidad];
+  // --- Gate 4: does the niche's price leave a royalty ------------------------
+  const pagePrices = page1.map((b) => b.price).filter((v): v is number => v !== null).sort((a, b) => a - b);
+  const medianPrice = pagePrices.length ? pagePrices[Math.floor(pagePrices.length / 2)] : null;
+  const precio: Gate = {
+    id: "precio",
+    label: "Precio del nicho",
+    pass: medianPrice === null ? null : medianPrice >= PRICE_HEALTHY,
+    value: medianPrice === null ? "sin precios leídos" : `${medianPrice.toFixed(2)} de mediana`,
+    requirement: `≥ ${PRICE_HEALTHY.toFixed(2)}`,
+    detail:
+      medianPrice === null ? "No se leyó ningún precio."
+      : medianPrice >= PRICE_HEALTHY ? "El nicho soporta un precio con margen: la regalía puede financiar publicidad."
+      : `Por debajo de ${PRICE_HEALTHY.toFixed(2)} la regalía se queda corta una vez pagada la impresión, y no da para pujar por un clic.`,
+  };
+
+  const gates = [competencia, demanda, viabilidad, precio];
   const evaluated = gates.filter((g) => g.pass !== null).length;
   const passed = gates.filter((g) => g.pass === true).length;
 
@@ -135,12 +159,12 @@ export function reviewExpertise(
     gates,
     passed,
     evaluated,
-    flags: detectRedFlags(items, { marketplace, totalResults, demandBsr, selling }),
+    flags: detectRedFlags(items, { marketplace, totalResults, demandBsr, selling, page1 }),
     tone:
       evaluated === 0 ? "unknown"
-      : passed === 3 ? "great"
-      : passed === 2 ? "good"
-      : passed === 1 ? "mixed" : "bad",
+      : passed === evaluated ? "great"
+      : passed >= evaluated - 1 ? "good"
+      : passed > 0 ? "mixed" : "bad",
     headline:
       evaluated === 0 ? "No hay datos suficientes para aplicar los criterios de entrada."
       : passed === 3 ? "Cumple los tres criterios de entrada."
@@ -151,7 +175,10 @@ export function reviewExpertise(
 /** Traps where the headline numbers look good but the niche is not enterable. */
 function detectRedFlags(
   items: BookRecord[],
-  ctx: { marketplace: MarketplaceId; totalResults: number | null; demandBsr: number; selling: BookRecord[] },
+  ctx: {
+    marketplace: MarketplaceId; totalResults: number | null; demandBsr: number;
+    selling: BookRecord[]; page1: BookRecord[];
+  },
 ): RedFlag[] {
   const flags: RedFlag[] = [];
   const organic = items.filter((b) => !b.sponsored);
@@ -200,6 +227,47 @@ function detectRedFlags(
         detail: `Precio mediano de ${median.toFixed(2)}. Por debajo de ${PRICE_WAR_BELOW} la regalía no financia un clic de publicidad, así que dependerías de un posicionamiento orgánico inestable.`,
       });
     }
+  }
+
+  // The "Hábitos Atómicos" effect: the term is searched, and every sale under
+  // it belongs to a brand. Distinct from a publisher monopoly — plenty of
+  // indies can be present, they just do not sell. This is the shape of a
+  // keyword that gets typed constantly and bought by nobody new.
+  const sellingIndies = ctx.selling.filter((b) => b.selfPublished === true);
+  if (ctx.selling.length >= MIN_PROVEN && sellingIndies.length === 0) {
+    flags.push({
+      id: "marca-monopoliza",
+      severity: "alto",
+      label: "Las búsquedas se las lleva una marca",
+      detail: "Se vende aquí, pero ningún autor independiente está entre los que venden: el volumen pertenece a un título de marca y quien busca ya sabe qué libro quiere. Publicar aquí da impresiones y ninguna compra.",
+    });
+  }
+
+  // A niche whose sellers average under 4.1 stars is usually one KDP paper
+  // cannot print well — not a niche of weak rivals waiting to be beaten.
+  const rated = ctx.selling.filter((b) => b.rating !== null);
+  if (rated.length >= 3) {
+    const avg = rated.reduce((sum, b) => sum + (b.rating ?? 0), 0) / rated.length;
+    if (avg < RATING_TECHNICAL) {
+      flags.push({
+        id: "dificultad-tecnica",
+        severity: "medio",
+        label: "Nicho difícil de imprimir bien",
+        detail: `Los que venden promedian ${avg.toFixed(1)}★. Cuando las valoraciones bajan de ${RATING_TECHNICAL} en un nicho visual, suele ser el papel de KDP el que no da la calidad que el comprador espera — y el siguiente en publicar se lleva las mismas reseñas de una estrella.`,
+      });
+    }
+  }
+
+  // A subject with no book older than a couple of years is a fashion, not a
+  // market: the asset stops earning when the fashion passes.
+  const dated = ctx.page1.filter((b) => b.enriched && b.ageMonths !== null);
+  if (dated.length >= 5 && dated.every((b) => (b.ageMonths ?? 0) < 24)) {
+    flags.push({
+      id: "moda-pasajera",
+      severity: "medio",
+      label: "Sin catálogo consolidado",
+      detail: "Ningún libro de la primera página pasa de dos años. Un tema sin fondo de catálogo suele ser una moda: funciona unos meses y después el libro deja de venderse para siempre.",
+    });
   }
 
   // Ads filling the top of the page means nobody survives organically.

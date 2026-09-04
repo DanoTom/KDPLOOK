@@ -651,10 +651,26 @@ function ExpertGates({ items, summary }: { items: BookRecord[]; summary: NicheSu
           </Alert>
         ))}
 
+        {/* The only check here with an irreversible penalty, and it was a
+            footnote. No API answers it, so the app cannot pass or fail it —
+            but it can take the operator straight to the register. */}
+        <Alert tone="warn">
+          <strong>Antes que ningún número: ¿es marca registrada?</strong>
+          <div className="small" style={{ marginTop: 4, lineHeight: 1.7 }}>
+            Una palabra clave con una marca o una celebridad puede costarte la cuenta de KDP, y eso no
+            se recupera. Es el único filtro que ninguna herramienta puede resolver por ti — se
+            comprueba en el registro, clase 16 (impresos).{" "}
+            <a
+              href={`https://branddb.wipo.int/en/quicksearch?q=${encodeURIComponent(summary.keyword)}`}
+              target="_blank" rel="noreferrer noopener"
+            >
+              Buscar «{summary.keyword}» en la base de la WIPO <Icon.External size={12} />
+            </a>
+          </div>
+        </Alert>
+
         <div className="tiny faint" style={{ lineHeight: 1.6 }}>
           Un criterio que no se puede evaluar aparece como «?» y no cuenta ni a favor ni en contra.
-          Comprueba siempre a mano el riesgo de marca registrada: una palabra clave con una marca o
-          celebridad puede costar la cuenta por mucho que los números acompañen.
         </div>
       </div>
     </Card>

@@ -38,9 +38,15 @@ export function deriveMetrics(
 }
 
 /**
- * How beatable a single competitor looks, 0-100. Few reviews, a mediocre
- * rating, an old listing and a self-published imprint all mean there is room
- * to out-publish it.
+ * How beatable a single competitor looks, 0-100.
+ *
+ * Counting reviews alone gets this backwards in both directions. Social proof
+ * only defends a book that is still selling: a title with a thousand reviews
+ * and a rank in the hundreds of thousands is a book whose moment passed — dated
+ * content, a tired cover — and it is the easiest thing on the page to displace.
+ * Meanwhile a launch a few weeks old that is already selling with almost no
+ * reviews is the softest target there is, and the one worth aiming ads at.
+ * So reviews are read against the rank rather than on their own.
  */
 function weaknessScore(book: BookRecord, ageMonths: number | null, settings: AppSettings): number | null {
   if (book.reviews === null && book.rating === null && book.bsr === null) return null;
@@ -54,6 +60,14 @@ function weaknessScore(book: BookRecord, ageMonths: number | null, settings: App
   else if (reviews < 3000) score -= 22;
   else score -= 30;
 
+  // Reviews × rank. A book that stopped selling gives most of its social proof
+  // back; one selling hard defends it.
+  if (book.bsr !== null && reviews >= 200) {
+    if (book.bsr > 500_000) score += 24;
+    else if (book.bsr > 150_000) score += 12;
+    else if (book.bsr < 20_000) score -= 6;
+  }
+
   if (book.rating !== null) {
     if (book.rating < 3.9) score += 14;
     else if (book.rating < 4.3) score += 6;
@@ -62,6 +76,10 @@ function weaknessScore(book: BookRecord, ageMonths: number | null, settings: App
 
   if (ageMonths !== null) {
     if (ageMonths > 60) score += 8;
+    // Amazon gives a new title a visibility boost for about its first month, so
+    // a fresh listing looks stronger than it is — except when it is selling
+    // without having earned reviews yet, which is a gap that closes fast.
+    else if (ageMonths <= 1 && book.bsr !== null && reviews < 10) score += 14;
     else if (ageMonths < 6) score -= 6;
   }
 

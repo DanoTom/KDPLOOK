@@ -55,7 +55,17 @@ export interface ReliabilityInput {
   history?: RankPoint[];
 }
 
-/** A launch runs hot for about this long: honeymoon placement plus ad spend. */
+/**
+ * How long a rank keeps reflecting the launch rather than a rate.
+ *
+ * Amazon's honeymoon boost — the window where it tests whether a new title
+ * converts clicks — runs about thirty days, and that is the figure used for
+ * how *beatable* a fresh competitor is. This is a different question: not how
+ * much help Amazon is giving the book, but how little sales history sits behind
+ * its rank. Two months in, a title running ads still has a rank built from a
+ * handful of orders, and multiplying it by thirty still invents a month. The
+ * two numbers measure different things and are deliberately not the same.
+ */
 const LAUNCH_MONTHS = 2;
 /** Until roughly here the rank still carries the launch, just less of it. */
 const SETTLING_MONTHS = 4;
