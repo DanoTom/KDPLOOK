@@ -999,6 +999,46 @@ console.log("\npapeleria comercial fuera de las cifras del nicho");
   check("un nicho limpio no lleva el aviso", clean.signals.some((sig) => sig.id === "nonbooks"), false);
 }
 
+console.log("\nel veredicto no puede superar a los criterios de entrada");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const b = (i: number, over: Partial<BookRecord> = {}): BookRecord => ({
+    asin: `B0${String(i).padStart(8, "0")}`, title: `T${i}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 12, rating: 4.5, reviews: 4,
+    sponsored: false, kindleUnlimited: false, position: i, bsr: 330_000, categoryRanks: [],
+    pages: 120, publisher: "Independently published", publishedAt: null, language: null,
+    isbn: null, dimensions: null, selfPublished: true, enriched: true, salesPerMonth: 1,
+    revenuePerMonth: 4, royaltyPerUnit: 4, ageMonths: 20, weakness: 80, ...over,
+  });
+
+  // "escucha activa" on Amazon.es: nine books read, none under BSR 10.000, all
+  // with fewer than 200 reviews. Soft competition and beatable rivals scored it
+  // "Bueno" — "viable si entras con un producto por encima de la media" — while
+  // the demand gate on the same screen read 0 de 9. The product is not the
+  // problem there; the absence of buyers is.
+  const sinDemanda = summariseNiche(Array.from({ length: 9 }, (_, i) => b(i + 1)), {
+    keyword: "escucha activa", marketplace: "es", settings, totalResults: null, resultsCountText: null,
+  });
+  check("sin demanda demostrada no llega a «Bueno»", sinDemanda.verdict.label, "Ajustado");
+  truthy("y el titular deja de culpar al producto",
+    sinDemanda.verdict.headline.includes("no vende nadie"));
+  truthy("diciendo qué criterio falló",
+    sinDemanda.verdict.reasoning.some((r) => r.includes("demanda demostrada")));
+
+  // The same niche with books that do sell keeps its verdict.
+  const conDemanda = summariseNiche(
+    Array.from({ length: 9 }, (_, i) => b(i + 1, { bsr: 6_000, salesPerMonth: 45, revenuePerMonth: 180 })),
+    { keyword: "escucha activa", marketplace: "es", settings, totalResults: 800, resultsCountText: null },
+  );
+  truthy("con demanda real el veredicto no se toca",
+    ["Excelente", "Bueno"].includes(conDemanda.verdict.label));
+  check("y no aparece el aviso de rebaja",
+    conDemanda.verdict.reasoning.some((r) => r.includes("Rebajado")), false);
+}
+
 console.log("\nel recuento de resultados pesa en la competencia");
 {
   const settings = {

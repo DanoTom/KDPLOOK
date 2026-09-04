@@ -425,7 +425,12 @@ export function KeywordsPage() {
                   <tr>
                     <th style={{ width: 32 }}></th>
                     <th>Palabra clave</th>
-                    <th className="num" title="Proxy de demanda: cuántas sondas la sugieren y en qué posición">Demanda</th>
+                    {/* Not "Demanda": the niche report uses that word for how
+                        much the books there actually sell, and the two answer
+                        opposite halves of the question. A phrase can be typed
+                        constantly with nobody buying — which is exactly what
+                        "escucha activa" turns out to be. */}
+                    <th className="num" title="Cuántas sondas del autocompletado devuelven esta frase y en qué posición. Mide que se teclee, no que se venda.">Se busca</th>
                     <th className="num">Apariciones</th>
                     <th className="num">Palabras</th>
                     <th className="num" title="Libros compitiendo por esta consulta">Resultados</th>
@@ -556,11 +561,13 @@ export function KeywordsPage() {
         <Card pad>
           <Field label="Cómo leer estas columnas">
             <div className="small muted" style={{ lineHeight: 1.65 }}>
-              <strong>Demanda</strong> no es volumen de búsqueda real —nadie fuera de Amazon lo tiene—, sino cuántas
-              sondas distintas del autocompletado devuelven esa frase y en qué posición. Una frase que aparece bajo
-              muchas letras y siempre arriba es una consulta que Amazon considera fuerte. Al revés no vale igual:
-              que el autocompletado no guarde una frase indica poco volumen, no que nadie la teclee —tú mismo
-              escribes consultas que no aparecerán ahí nunca—.{" "}
+              <strong>Se busca</strong> mide que la gente <em>teclee</em> esa frase: cuántas sondas del
+              autocompletado la devuelven y en qué posición. No es volumen real —nadie fuera de Amazon lo tiene— y
+              sobre todo <strong>no es lo mismo que la «Demanda» del informe de nicho</strong>, que mide cuánto
+              <em>venden</em> los libros que salen ahí. Una frase puede buscarse mucho y no vender nada: mucha gente
+              preguntando y ningún libro que compren. Al revés tampoco vale: que el autocompletado no guarde una
+              frase indica poco volumen, no que nadie la teclee —tú mismo escribes consultas que no aparecerán ahí
+              nunca—.{" "}
               <strong>Resultados</strong> y <strong>Reseñas medianas</strong> sí son datos duros del buscador: son
               tu medida de saturación. <strong>Oportunidad</strong> junta las dos mitades en un número y aparece
               en cuanto puntúas: demanda alta con pocos competidores y pocas reseñas es lo que se busca, y ordena

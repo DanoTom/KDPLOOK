@@ -317,7 +317,10 @@ function buildSignals(s: NicheSummary, settings: AppSettings, currency: string):
 
   signals.push({
     id: "demand",
-    label: "Demanda",
+    // "Se vende", not "Demanda": the keyword lab measures whether a phrase is
+    // typed, this measures whether the books there are bought, and one word for
+    // both had them read as the same number.
+    label: "Se vende",
     value: s.medianSalesPerMonth !== null ? `${Math.round(s.medianSalesPerMonth)} ventas/mes (mediana)` : "sin datos de BSR",
     tone: s.demandScore >= 65 ? "good" : s.demandScore >= 40 ? "warn" : "bad",
     hint: "Mediana de ventas mensuales estimadas del top orgánico. Se usa la mediana porque una sola superventa distorsiona la media.",
@@ -397,9 +400,16 @@ function capByGates(verdict: Verdict, review: ReturnType<typeof reviewExpertise>
   const severe = review.flags.filter((flag) => flag.severity === "alto");
   if (!failed.length && !severe.length) return verdict;
 
-  // One failed gate holds it below "Excelente"; two below "Bueno"; all three
-  // leave nothing to recommend. A high-severity warning costs one step too.
-  const steps = Math.min(3, failed.length + (severe.length ? 1 : 0));
+  // Not all three gates fail the same way. Competition and beatability are
+  // about how hard entry would be; demand is about whether there is anything
+  // to enter. When no book here sells, "viable si entras con un producto por
+  // encima de la media" is the wrong advice entirely — the product is not the
+  // problem, the absence of buyers is — so that one costs two steps.
+  const noDemand = failed.some((gate) => gate.id === "demanda");
+  const steps = Math.min(
+    3,
+    failed.length + (noDemand ? 1 : 0) + (severe.length ? 1 : 0),
+  );
   const current = VERDICT_ORDER.indexOf(verdict.label as Verdict["label"]);
   const capped = VERDICT_ORDER[Math.min(VERDICT_ORDER.length - 1, Math.max(current, steps))];
   if (capped === verdict.label) return verdict;
@@ -410,6 +420,9 @@ function capByGates(verdict: Verdict, review: ReturnType<typeof reviewExpertise>
     ...verdict,
     label: capped,
     tone: VERDICT_TONE[capped],
+    headline: noDemand
+      ? "Se busca, pero aquí no vende nadie: entrar mejor no arregla que no haya compradores."
+      : verdict.headline,
     reasoning: [
       ...verdict.reasoning,
       `Rebajado de «${verdict.label}» a «${capped}»: no cumple ${reasons.join(" ni ")}. ` +
