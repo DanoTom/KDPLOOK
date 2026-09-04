@@ -208,4 +208,11 @@ export const api = {
   parsePasted: (body: { html: string; marketplace?: string; kind?: "search" | "product" | "category" }) =>
     post<ProbeResponse>("/api/debug/parse", body),
   fetchLog: () => request<HealthInfo["recentFetches"]>("/api/debug/log"),
+
+  /** The bookmarklet, built with this install's origin and capture token. */
+  bookmarklet: () => request<{ source: string }>("/api/capture/bookmarklet"),
+
+  /** A capture the bookmarklet could not post itself. */
+  importCapture: (payload: Record<string, unknown>) =>
+    post<{ id: string; analysed: number; enriched: number }>("/api/capture", payload),
 };

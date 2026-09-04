@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppSettings, CalibrationSample, MarketplaceId, PrintingCosts } from "../../shared/types";
 import { calibrationFor, salesPerMonth, suggestCalibration } from "../../shared/analytics/bsr";
 import { api } from "../api";
 import { Layout } from "../components/Layout";
-import { Alert, Badge, Button, Card, CardHead, Field, SegmentedControl, Switch } from "../components/ui";
+import { Alert, Badge, Button, Card, CardHead, Disclosure, Field, SegmentedControl, Switch } from "../components/ui";
 import { Icon } from "../components/icons";
 import { fmtCompact, fmtNum } from "../lib/format";
 import { useApp } from "../state";
@@ -35,14 +35,14 @@ export function SettingsPage() {
               />
             </Field>
             <Field
-              label={`Páginas de resultados por escaneo: ${settings.searchPages}`}
-              help="Cada página son ~48 libros y una petición a Amazon. Tres es un buen equilibrio."
+              label={`Cuántos resultados mirar: ${settings.searchPages * 48}`}
+              help="Cuántos libros de la búsqueda entran en el análisis. Con unos 150 ya se ve quién manda en el nicho."
             >
               <input type="range" min={1} max={7} value={settings.searchPages} onChange={(e) => set("searchPages", Number(e.target.value))} />
             </Field>
             <Field
-              label={`Fichas a enriquecer: ${settings.enrichCount}`}
-              help="Sin enriquecer no hay BSR y por tanto no hay estimación de ventas. Más fichas = más lento."
+              label={`Cuántos libros analizar a fondo: ${settings.enrichCount}`}
+              help="Abrir la ficha de un libro es lo que revela cuánto vende. De aquí salen las ventas y regalías estimadas, y es también lo que hace lento el análisis."
             >
               <input type="range" min={0} max={40} step={4} value={settings.enrichCount} onChange={(e) => set("enrichCount", Number(e.target.value))} />
             </Field>
@@ -50,22 +50,29 @@ export function SettingsPage() {
         </Card>
 
         <Card>
-          <CardHead title="Criterios de análisis" note="Define qué consideras un rival batible y cuánta demanda te vale." />
+          <CardHead title="Criterios de análisis" note="Qué consideras tú un rival alcanzable." />
           <div className="card-pad grid grid-2">
             <Field
-              label={`Umbral de «pocas reseñas»: ${settings.weakReviewThreshold}`}
-              help="Por debajo de esta cifra un competidor cuenta como alcanzable. 100 es un punto de partida razonable para no ficción."
+              label={`Un rival es alcanzable con menos de ${settings.weakReviewThreshold} reseñas`}
+              help="Las reseñas son la ventaja que te lleva un libro ya asentado. Por debajo de esta cifra, uno nuevo puede alcanzarlo en meses. 100 es un buen punto de partida."
             >
               <input type="range" min={10} max={500} step={10} value={settings.weakReviewThreshold} onChange={(e) => set("weakReviewThreshold", Number(e.target.value))} />
             </Field>
-            <Field
-              label={`Ajuste manual global: ×${settings.salesCurveCalibration.toFixed(2)}`}
-              help="Se aplica a las tiendas que no tengan calibración propia. Mejor usa el asistente de abajo."
+            <Disclosure
+              summary="Ajuste manual de las estimaciones"
+              note={`×${settings.salesCurveCalibration.toFixed(2)} · normalmente no hace falta tocarlo`}
             >
-              <input type="range" min={0.2} max={3} step={0.05} value={settings.salesCurveCalibration} onChange={(e) => set("salesCurveCalibration", Number(e.target.value))} />
-            </Field>
+              <Field
+                label={`Multiplicar las ventas estimadas por ×${settings.salesCurveCalibration.toFixed(2)}`}
+                help="Solo afecta a las tiendas sin calibración propia. Es preferible medirlo con un libro tuyo, aquí abajo, que moverlo a ojo."
+              >
+                <input type="range" min={0.2} max={3} step={0.05} value={settings.salesCurveCalibration} onChange={(e) => set("salesCurveCalibration", Number(e.target.value))} />
+              </Field>
+            </Disclosure>
           </div>
         </Card>
+
+        <CaptureCard />
 
         <CalibrationCard />
 
@@ -113,6 +120,7 @@ export function SettingsPage() {
               </Field>
             ) : null}
 
+            <Disclosure summary="Ritmo de las peticiones" note="Cámbialo solo si Amazon te bloquea a menudo">
             <div className="grid grid-2">
               <Field
                 label={`Caché: ${settings.cacheTtlHours} h`}
@@ -130,15 +138,25 @@ export function SettingsPage() {
                 <input type="range" min={0} max={2000} step={50} value={settings.requestDelayMs} onChange={(e) => set("requestDelayMs", Number(e.target.value))} />
               </Field>
             </div>
+            </Disclosure>
           </div>
         </Card>
 
         <Card>
           <CardHead
             title="Costes de impresión"
-            note="Tarifas de Amazon EE. UU. Cámbialas cuando KDP las revise o si publicas en otra tienda."
+            note="Lo que Amazon te cobra por fabricar cada ejemplar. De aquí sale la regalía."
           />
-          <div className="card-pad grid grid-3">
+          <div className="card-pad">
+            <Alert tone="warn">
+              Estas son las tarifas de <strong>Amazon EE.&nbsp;UU. en dólares</strong>. Si publicas en
+              Amazon.es, las regalías en euros que te muestre la app estarán desviadas hasta que las
+              cambies por las de tu tienda.
+            </Alert>
+          </div>
+          <div className="card-pad">
+          <Disclosure summary="Ver y editar las tarifas" note="11 valores; Amazon los revisa de vez en cuando">
+          <div className="grid grid-3">
             <Field label="B/N regular, fijo (≤108 p.)"><NumberInput value={settings.printing.bwRegularFixed} onChange={(v) => setPrinting("bwRegularFixed", v)} /></Field>
             <Field label="B/N regular, por página"><NumberInput value={settings.printing.bwRegularPerPage} step={0.001} onChange={(v) => setPrinting("bwRegularPerPage", v)} /></Field>
             <Field label="Umbral de páginas"><NumberInput value={settings.printing.bwRegularFixedMaxPages} step={1} onChange={(v) => setPrinting("bwRegularFixedMaxPages", v)} /></Field>
@@ -150,6 +168,8 @@ export function SettingsPage() {
             <Field label="Color premium, por página"><NumberInput value={settings.printing.premiumColorPerPage} step={0.0005} onChange={(v) => setPrinting("premiumColorPerPage", v)} /></Field>
             <Field label="Tapa dura, fijo"><NumberInput value={settings.printing.hardcoverFixed} onChange={(v) => setPrinting("hardcoverFixed", v)} /></Field>
             <Field label="Tapa dura, por página"><NumberInput value={settings.printing.hardcoverPerPage} step={0.001} onChange={(v) => setPrinting("hardcoverPerPage", v)} /></Field>
+          </div>
+          </Disclosure>
           </div>
         </Card>
 
@@ -451,6 +471,112 @@ function CalibrationCard() {
             </div>
           </div>
         ) : null}
+      </div>
+    </Card>
+  );
+}
+
+
+/**
+ * The reader that always works: the operator's own browser.
+ *
+ * Amazon answers a person with the whole shelf and a datacenter with a short
+ * page or a refusal, and no amount of headers changes that — it is the address
+ * the request comes from. So the browser already logged in does the reading and
+ * hands the pages over. Free, unblockable, and nobody else sees the searches.
+ */
+function CaptureCard() {
+  const { settings, updateSettings, toast } = useApp();
+  const [source, setSource] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const linkRef = useRef<HTMLAnchorElement | null>(null);
+
+  const token = settings?.captureToken ?? "";
+
+  const loadSource = useCallback(async () => {
+    try { setSource((await api.bookmarklet()).source); }
+    catch { setSource(null); }
+  }, []);
+
+  useEffect(() => { if (token) void loadSource(); }, [token, loadSource]);
+
+  // React refuses to render a `javascript:` href, so it goes on after mount.
+  // Dragging the link to the bookmarks bar is the whole installation.
+  useEffect(() => {
+    if (linkRef.current && source) linkRef.current.setAttribute("href", source);
+  }, [source]);
+
+  async function enable() {
+    setBusy(true);
+    try {
+      await updateSettings({ captureToken: crypto.randomUUID().replace(/-/g, "") });
+      toast("Listo. Arrastra el botón a tu barra de marcadores.", "good");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHead
+        title="Leer Amazon desde tu navegador"
+        note="La vía recomendada: gratis, sin límites y sin intermediarios."
+      >
+        <Badge tone={token ? "good" : "neutral"}>{token ? "activado" : "sin activar"}</Badge>
+      </CardHead>
+
+      <div className="card-pad stack">
+        <Alert tone="info">
+          Amazon te enseña a ti la estantería entera y a un servidor le sirve una página recortada,
+          porque mira de dónde viene la petición. Con esto lee tu propio navegador, que ya ha entrado:
+          abres una búsqueda en Amazon, pulsas el botón, y el informe aparece aquí hecho.
+        </Alert>
+
+        {!token ? (
+          <div className="row">
+            <Button variant="primary" loading={busy} icon={<Icon.Check size={15} />} onClick={enable}>
+              Activar
+            </Button>
+          </div>
+        ) : (
+          <>
+            <ol className="muted" style={{ margin: 0, paddingLeft: 20, lineHeight: 1.9 }}>
+              <li>
+                Arrastra este botón a la barra de marcadores de tu navegador:{" "}
+                <a
+                  ref={linkRef} className="btn btn-primary btn-sm" href="#"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    toast("No lo pulses aquí: arrástralo a tus marcadores.", "info");
+                  }}
+                >
+                  📚 Analizar con KDPLOOK
+                </a>
+              </li>
+              <li>En Amazon, busca lo que quieras analizar (por ejemplo <span className="mono">agenda para psicologos</span>).</li>
+              <li>Pulsa el marcador. Lee la página y las fichas, y te deja el enlace al informe.</li>
+            </ol>
+
+            <div className="row-tight">
+              <Button
+                size="sm" variant="ghost"
+                onClick={async () => {
+                  if (!source) return;
+                  await navigator.clipboard.writeText(source);
+                  toast("Copiado. Pégalo como dirección de un marcador nuevo.", "good");
+                }}
+              >
+                Copiar el enlace
+              </Button>
+              <Button size="sm" variant="ghost" onClick={enable}>Cambiar el token</Button>
+            </div>
+
+            <div className="small faint">
+              Si tu navegador no deja arrastrar marcadores (algunos móviles), crea un marcador
+              cualquiera, edítalo y pega la dirección copiada.
+            </div>
+          </>
+        )}
       </div>
     </Card>
   );

@@ -6,6 +6,7 @@ import type { Env } from "./env";
 import { DEFAULT_PRINTING_COSTS } from "../shared/analytics/royalty";
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  captureToken: "",
   marketplace: "com",
   searchPages: 3,
   enrichCount: 20,

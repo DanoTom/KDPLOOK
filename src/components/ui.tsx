@@ -77,6 +77,29 @@ export function Kpi({
   );
 }
 
+/**
+ * A section that stays shut until someone wants it.
+ *
+ * Most of what this app can be told — how many pages to pull, how long to
+ * pause between requests, the per-page printing rate — is machinery, not a
+ * decision a publisher should have to make to get an answer. It has defaults
+ * that work; putting it behind this keeps it available without making it the
+ * first thing anyone reads.
+ */
+export function Disclosure({
+  summary, note, children, open = false,
+}: { summary: string; note?: string; children: ReactNode; open?: boolean }) {
+  return (
+    <details className="disclosure" open={open}>
+      <summary>
+        <span className="disclosure-title">{summary}</span>
+        {note ? <span className="disclosure-note">{note}</span> : null}
+      </summary>
+      <div className="disclosure-body">{children}</div>
+    </details>
+  );
+}
+
 export function Meter({ value, tone = "neutral" }: { value: number; tone?: Tone }) {
   return (
     <div className={`meter tone-${tone}`}>

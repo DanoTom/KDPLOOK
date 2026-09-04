@@ -19,6 +19,8 @@ import { parseSearchPage } from "./amazon/search";
 import { parseProductPage, type ProductDetail } from "./amazon/product";
 import { expandKeywords, type ProbeGroup } from "./amazon/suggest";
 import { bestsellerUrl, parseBestsellerPage } from "./amazon/category";
+import { bookmarkletSource } from "./capture";
+import { deriveMetrics, summariseNiche } from "../shared/analytics/score";
 import { schemaStatements } from "./schema";
 
 type AppContext = { Bindings: Env; Variables: { settings: AppSettings } };
@@ -31,7 +33,9 @@ const app = new Hono<AppContext>();
 
 app.use("/api/*", async (c, next) => {
   // These endpoints must answer before a session exists.
-  const open = ["/api/auth/login", "/api/auth/status", "/api/health"];
+  // `/api/capture` comes from a page on amazon.es, where the session cookie
+  // cannot travel; it carries its own token instead and checks it itself.
+  const open = ["/api/auth/login", "/api/auth/status", "/api/health", "/api/capture"];
   if (!open.includes(new URL(c.req.url).pathname)) {
     if (!(await isAuthenticated(c.req.raw, c.env))) {
       return c.json({ error: "No autorizado", hint: "Inicia sesión con tu contraseña." }, 401);
@@ -127,6 +131,97 @@ app.put("/api/settings", async (c) => {
 });
 
 app.post("/api/settings/reset", async (c) => c.json(await saveSettings(c.env, DEFAULT_SETTINGS)));
+
+// ---------------------------------------------------------------------------
+// Capture: a scan performed by the operator's own browser.
+//
+// Amazon answers a person and a datacenter differently, so the browser already
+// logged in is the only reader guaranteed to see the whole shelf. It sends the
+// results page and the book pages behind it; everything from there on is the
+// same code the fetched path uses.
+// ---------------------------------------------------------------------------
+
+/** Only the storefronts, and only for this endpoint. */
+function captureCors(origin: string | null): Record<string, string> {
+  const allowed = origin && /^https:\/\/(www\.)?amazon\.[a-z.]+$/i.test(origin) ? origin : "*";
+  return {
+    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+app.options("/api/capture", (c) => new Response(null, { status: 204, headers: captureCors(c.req.header("Origin") ?? null) }));
+
+app.post("/api/capture", async (c) => {
+  const cors = captureCors(c.req.header("Origin") ?? null);
+  const body = await readJson<{
+    token?: string; keyword?: string; marketplace?: string;
+    department?: "print" | "kindle" | "all";
+    searchHtml?: string; details?: Array<{ asin?: string; html?: string }>;
+  }>(c);
+
+  const settings = await withSettings(c);
+  const expected = settings.captureToken;
+  if (!expected || body.token !== expected) {
+    return c.json({ error: "Token de captura inválido. Genera uno nuevo en Ajustes." }, 401, cors);
+  }
+
+  const keyword = (body.keyword ?? "").trim();
+  const searchHtml = body.searchHtml ?? "";
+  if (!keyword || searchHtml.length < 200) {
+    return c.json({ error: "La captura llegó vacía." }, 400, cors);
+  }
+
+  const marketplace = getMarketplace(body.marketplace ?? settings.marketplace);
+  const parsed = parseSearchPage(searchHtml, marketplace, 0, 60);
+  if (!parsed.items.length) {
+    return c.json({ error: "No se reconoció ningún libro en la captura.", pageHint: parsed.pageHint }, 422, cors);
+  }
+
+  // Fold each book page into the row the results page produced.
+  const byAsin = new Map(parsed.items.map((item) => [item.asin, item]));
+  let enriched = 0;
+  for (const detail of body.details ?? []) {
+    const row = detail.asin ? byAsin.get(detail.asin.toUpperCase()) : undefined;
+    if (!row || !detail.html) continue;
+    const page = parseProductPage(detail.html, row.asin);
+    byAsin.set(row.asin, {
+      ...row,
+      bsr: page.bsr, categoryRanks: page.categoryRanks, pages: page.pages,
+      publisher: page.publisher, publishedAt: page.publishedAt, language: page.language,
+      isbn: page.isbn, dimensions: page.dimensions, selfPublished: page.selfPublished,
+      price: row.price ?? page.price,
+      rating: row.rating ?? page.rating,
+      reviews: row.reviews ?? page.reviews,
+      enriched: true,
+    });
+    enriched += 1;
+  }
+
+  const items = Array.from(byAsin.values()).map((item) => deriveMetrics(item, marketplace.id, settings));
+  const summary = summariseNiche(items, {
+    keyword, marketplace: marketplace.id, settings,
+    totalResults: parsed.totalResults, resultsCountText: parsed.resultsCountText,
+  });
+
+  const id = await saveNiche(c.env, summary, items, "Capturado desde el navegador");
+  await logFetch(c.env, {
+    kind: "search", target: `capture:${keyword}`, provider: "navegador", status: 200,
+    ok: true, blocked: false, ms: 0, parsed: items.length,
+    detail: `${items.length} libros, ${enriched} fichas`,
+  });
+
+  return c.json({ id, analysed: items.length, enriched }, 200, cors);
+});
+
+app.get("/api/capture/bookmarklet", async (c) => {
+  const settings = await withSettings(c);
+  if (!settings.captureToken) return c.json({ error: "Genera primero un token de captura." }, 400);
+  const origin = new URL(c.req.url).origin;
+  return c.json({ source: bookmarkletSource({ appOrigin: origin, token: settings.captureToken }) });
+});
 
 // ---------------------------------------------------------------------------
 // Scanning: one upstream page per request.

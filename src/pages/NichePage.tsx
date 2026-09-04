@@ -5,7 +5,7 @@ import { BookTable } from "../components/BookTable";
 import { BarChart, Donut, Gauge, histogram } from "../components/charts";
 import { Icon } from "../components/icons";
 import { Layout } from "../components/Layout";
-import { Alert, Badge, Button, Card, CardHead, Empty, Field, Kpi, Progress, SegmentedControl } from "../components/ui";
+import { Alert, Badge, Button, Card, CardHead, Disclosure, Empty, Field, Kpi, Progress, SegmentedControl } from "../components/ui";
 import { downloadCsv, toCsv } from "../lib/csv";
 import { fmtCompact, fmtDate, fmtInt, fmtMoney, fmtNum, fmtPct, slug, toneForCompetition, toneForScore } from "../lib/format";
 import { buildEntryPlan } from "../../shared/analytics/entry";
@@ -13,7 +13,7 @@ import { reviewExpertise } from "../../shared/analytics/checklist";
 import { monthNames, seasonInsight } from "../../shared/analytics/season";
 import { findAngles } from "../../shared/analytics/angles";
 import { useNicheScan, type Department } from "../lib/scan";
-import { useRoute } from "../router";
+import { Link, useRoute } from "../router";
 import { useApp, useSettings } from "../state";
 
 export function NichePage() {
@@ -165,22 +165,25 @@ export function NichePage() {
             {scan.busy ? <Button type="button" variant="ghost" onClick={scan.cancel}>Cancelar</Button> : null}
           </form>
 
-          <div className="row" style={{ marginTop: 12, gap: 18 }}>
-            <Field label={`Páginas de resultados: ${pages}`} style={{ width: 190 }}>
-              <input type="range" min={1} max={7} value={pages} onChange={(event) => setPages(Number(event.target.value))} />
-            </Field>
-            <Field label={`Fichas a enriquecer: ${enrich}`} style={{ width: 190 }}>
-              <input type="range" min={0} max={40} step={4} value={enrich} onChange={(event) => setEnrich(Number(event.target.value))} />
-            </Field>
-            <div className="small faint" style={{ maxWidth: 420 }}>
-              Enriquecer abre la ficha de cada libro para leer BSR, páginas y editorial. Es lo que da
-              las estimaciones de ventas, y también lo más lento — 8 fichas por petición.
-            </div>
-            {scan.result ? (
-              <Button size="sm" variant="ghost" className="spacer" icon={<Icon.Refresh size={15} />} onClick={() => start(true)}>
-                Ignorar caché
-              </Button>
-            ) : null}
+          <div style={{ marginTop: 12 }}>
+            <Disclosure
+              summary="Ajustes de esta búsqueda"
+              note={`${pages * 48} resultados · ${enrich} fichas al detalle`}
+            >
+              <div className="row" style={{ gap: 18 }}>
+                <Field label={`Cuántos resultados mirar: ${pages * 48}`} style={{ width: 210 }}>
+                  <input type="range" min={1} max={7} value={pages} onChange={(event) => setPages(Number(event.target.value))} />
+                </Field>
+                <Field label={`Cuántos libros analizar a fondo: ${enrich}`} style={{ width: 210 }}>
+                  <input type="range" min={0} max={40} step={4} value={enrich} onChange={(event) => setEnrich(Number(event.target.value))} />
+                </Field>
+                <div className="small faint" style={{ maxWidth: 380, lineHeight: 1.6 }}>
+                  Analizar a fondo abre la ficha de cada libro para saber cuánto vende. Es de donde salen
+                  las estimaciones de ventas y regalías, y también lo que hace lenta la búsqueda. Con 20
+                  basta para hacerse una idea del nicho.
+                </div>
+              </div>
+            </Disclosure>
           </div>
         </Card>
 
@@ -199,6 +202,10 @@ export function NichePage() {
           <Alert tone={scan.error.blocked ? "warn" : "bad"}>
             <strong>{scan.error.message}</strong>
             {scan.error.hint ? <div className="small" style={{ marginTop: 4 }}>{scan.error.hint}</div> : null}
+            <div className="small" style={{ marginTop: 8 }}>
+              Cuando Amazon no deja leer desde el servidor, el camino que siempre funciona es tu propio
+              navegador: actívalo en <Link to="/ajustes">Ajustes → Leer Amazon desde tu navegador</Link>.
+            </div>
           </Alert>
         ) : null}
 
@@ -220,13 +227,18 @@ export function NichePage() {
             onWatch={watch}
             watched={watched}
           />
-        ) : !scan.busy && !scan.error ? (
-          <Card>
-            <Empty icon="📚" title="Escribe una palabra clave para empezar">
-              Piensa como el comprador: “coloring book for kids ages 4-8”, “sudoku large print”,
-              “planificador semanal 2026”. Cuanto más concreta, más útil el resultado.
-            </Empty>
-          </Card>
+        ) : null}
+
+        {!scan.busy && !scan.error && !summary ? (
+          <>
+            <Card>
+              <Empty icon="📚" title="Escribe una palabra clave para empezar">
+                Piensa como el comprador: “coloring book for kids ages 4-8”, “sudoku large print”,
+                “planificador semanal 2026”. Cuanto más concreta, más útil el resultado.
+              </Empty>
+            </Card>
+            <ImportCapture />
+          </>
         ) : null}
       </div>
     </Layout>
@@ -698,6 +710,69 @@ function AnglesCard({ items, keyword }: { items: BookRecord[]; keyword: string }
             </div>
           </div>
         ))}
+      </div>
+    </Card>
+  );
+}
+
+
+/**
+ * The other half of the browser capture.
+ *
+ * The bookmarklet posts its bundle straight here, but Amazon's content policy
+ * can block that post. When it does, the capture is already in hand and gets
+ * copied to the clipboard instead — so there has to be somewhere to put it.
+ */
+function ImportCapture() {
+  const { toast } = useApp();
+  const { navigate } = useRoute();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  async function send() {
+    setBusy(true);
+    try {
+      const payload = JSON.parse(text) as Record<string, unknown>;
+      const result = await api.importCapture(payload);
+      toast(`${result.analysed} libros importados`, "good");
+      navigate(`/nicho?id=${result.id}`);
+    } catch (error) {
+      toast(error instanceof SyntaxError
+        ? "Eso no parece una captura. Copia otra vez desde el marcador."
+        : error instanceof Error ? error.message : "No se pudo importar", "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="row-tight">
+        <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>Importar captura del navegador</Button>
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHead
+        title="Importar captura"
+        note="Solo hace falta si Amazon bloqueó el envío y el marcador te dijo que la había copiado."
+      >
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cerrar</Button>
+      </CardHead>
+      <div className="card-pad stack">
+        <textarea
+          className="input mono" rows={3} placeholder="Pega aquí lo que copió el marcador"
+          value={text} onChange={(event) => setText(event.target.value)}
+        />
+        <div className="row">
+          <Button variant="primary" loading={busy} disabled={text.trim().length < 50} onClick={() => void send()}>
+            Importar
+          </Button>
+          {text ? <span className="small faint">{(text.length / 1024).toFixed(0)} KB</span> : null}
+        </div>
       </div>
     </Card>
   );

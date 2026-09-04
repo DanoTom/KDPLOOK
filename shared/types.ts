@@ -313,6 +313,11 @@ export interface AppSettings {
   calibrationSamples: CalibrationSample[];
   theme: "dark" | "light";
   locale: "es" | "en";
+  /**
+   * Authorises a capture sent from a page on Amazon, where the session cookie
+   * cannot travel. Empty until the bookmarklet is set up.
+   */
+  captureToken?: string;
 }
 
 export interface ProviderStatus {
