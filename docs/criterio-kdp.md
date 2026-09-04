@@ -378,6 +378,36 @@ plana hasta la 108 y por página a partir de ahí.
 El tipo se deduce del propio nicho (páginas, y el precio para deshacer
 empates) y se muestra arriba de los criterios con los números que aplica.
 
+### Las palabras de los que venden, cuando casi nadie vende
+
+Mismo problema que el filtro de demanda, en otra tarjeta. La comparación
+("qué dicen los títulos que venden y los demás no") pedía al menos **dos**
+libros bajo el umbral semanal. En las dos búsquedas reales de .es había
+**uno** de ocho y **uno** de once: la tarjeta no aparecía nunca.
+
+Ahora cae en cascada y dice con qué se ha comparado:
+
+1. **los que venden** — dos o más bajo el umbral, la lectura estricta;
+2. **los que mejor se sitúan** — el tercio mejor rankeado de la página, con el
+   rango de BSR a la vista para que se juzgue solo;
+3. **los primeros de la página** — cuando Amazon no publicó ranking en ninguna
+   ficha.
+
+Sobre los CSV reales pasa de no decir nada a: *psico, psicología, clínica,
+profesional, psicólogos, cuaderno*.
+
+### Una agenda de 200 páginas no es no ficción
+
+La regla de páginas lee una agenda anual como alto contenido. Sobre el dinero
+acierta —cuesta imprimirla y se vende a 16,99 €—, pero sobre la barrera no:
+`alto` es optimista porque escribir bien es difícil, y maquetar plantillas no
+lo es.
+
+En vez de inventar un cuarto perfil, cuando la mitad de los títulos de la
+página nombran un formato de papelería (agenda, cuaderno, planner, libreta,
+diario…) el informe añade el aviso: se sigue juzgando como alto contenido, pero
+con más competencia nueva y más presión de precio de la que sugiere el perfil.
+
 ### Lo que sigue pendiente
 
 - **Las 10 categorías**: siguen existiendo en 2026, pero por ticket a soporte,

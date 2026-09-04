@@ -111,3 +111,38 @@ export function inferContentType(items: BookRecord[]): ContentType {
   }
   return "medio";
 }
+
+/**
+ * Formats where the page count lies about the work.
+ *
+ * A dated 200-page agenda is priced and printed like a high-content book, and
+ * the page rule reads it as one — which is right about the money and wrong
+ * about the barrier. `alto` earns its optimism from how hard the writing is;
+ * a planner has no such moat. Rather than invent a fourth profile for a case
+ * the picker can already override, say the part that does not transfer.
+ */
+const FORMAT_WORDS = [
+  "agenda", "agendas", "planner", "planners", "planificador", "planificadora",
+  "cuaderno", "cuadernos", "libreta", "libretas", "bloc", "diario", "diarios",
+  "journal", "notebook", "calendario", "calendarios", "organizador",
+  "bitácora", "bitacora", "dietario", "recetario", "álbum", "album",
+];
+
+/** Half the page naming a stationery format is the niche, not a coincidence. */
+const FORMAT_SHARE = 0.5;
+
+export function formatCaveat(items: BookRecord[], type: ContentType): string | null {
+  if (type !== "alto") return null;
+  const titles = items
+    .filter((b) => !b.sponsored && isPublishableBook(b) && b.title)
+    .map((b) => `${b.title} ${b.subtitle ?? ""}`.toLowerCase());
+  if (titles.length < 4) return null;
+  const hits = titles.filter((t) => FORMAT_WORDS.some((w) => new RegExp(`(^|[^a-záéíóúñ])${w}([^a-záéíóúñ]|$)`).test(t)));
+  if (hits.length / titles.length < FORMAT_SHARE) return null;
+  return (
+    "Ojo: la mayoría de estos títulos son agendas, cuadernos o planificadores. Por extensión y precio " +
+    "se comportan como alto contenido —y así se juzgan aquí—, pero la barrera no es escribir bien: " +
+    "maquetar 200 páginas de plantilla lo hace cualquiera. Cuenta con más competencia nueva y más " +
+    "presión sobre el precio de la que sugiere este perfil."
+  );
+}

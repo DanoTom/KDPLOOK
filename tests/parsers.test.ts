@@ -1102,6 +1102,34 @@ console.log("\nlas palabras de los titulos que venden");
 
   // Too little to say anything is better than saying it badly.
   check("con muy pocos libros no opina", analyseTitles(page.slice(0, 3), 30_000).terms.length, 0);
+
+  // A Spanish-shaped page: one book under the weekly-sale rank out of six.
+  // Requiring two sellers meant the card never appeared in the market this
+  // tool is used in, so it falls back to the best-ranked part of the page.
+  const espana = [
+    b(1, "Agenda profesional para psicologos", 15_726),
+    b(2, "Agenda profesional de sesiones", 48_000),
+    b(3, "Agenda clinica anual", 90_000),
+    b(4, "Agenda bonita de flores", 400_000),
+    b(5, "Agenda semanal rosa", 800_000),
+    b(6, "Agenda de gatitos", 1_200_000),
+  ];
+  const small = analyseTitles(espana, 30_000);
+  check("sin vendedores compara con los mejor situados", small.basis, "mejores");
+  check("y dice cuántos son", small.sellers, 2);
+  check("y con qué ranking se quedó", small.bestBsr, 15_726);
+  truthy("encontrando igualmente la palabra que los distingue",
+    (small.terms.find((t) => t.term === "profesional")?.lift ?? 0) > 1.4);
+
+  // No rank published anywhere: page order is what Amazon is telling us.
+  const sinRank = analyseTitles(espana.map((x) => ({ ...x, bsr: null })), 30_000);
+  check("sin ranking se compara por posición", sinRank.basis, "posicion");
+  check("y no inventa un ranking", sinRank.bestBsr, null);
+  truthy("pero sigue diciendo algo", sinRank.terms.length > 0);
+
+  // Two under the bar is still the strict reading.
+  check("con dos que venden vuelve a la lectura estricta",
+    analyseTitles(espana, 50_000).basis, "venden");
 }
 
 console.log("\nbajo, medio y alto contenido son tres negocios");
@@ -1127,6 +1155,16 @@ console.log("\nbajo, medio y alto contenido son tres negocios");
   check("una guía de no ficción es alto", inferContentType(niche({ pages: 160, price: 16.99 })), "alto");
   check("corto pero caro es un pasatiempos, no una libreta",
     inferContentType(niche({ pages: 84, price: 11.5 })), "medio");
+
+  // A 200-page dated agenda prints and prices like a high-content book and is
+  // judged as one — but the barrier is not the writing, and saying so matters.
+  const agendas = reviewExpertise(niche({ pages: 200, price: 16.99, title: "Agenda anual 2027" }),
+    { marketplace: "es", totalResults: 800, settings });
+  check("una agenda larga se lee como alto contenido", agendas.profile.id, "alto");
+  truthy("pero avisa de que la barrera no es escribir bien", Boolean(agendas.profileCaveat));
+  const guia = reviewExpertise(niche({ pages: 200, price: 16.99, title: "Guia de terapia breve" }),
+    { marketplace: "es", totalResults: 800, settings });
+  check("y no avisa cuando sí es no ficción", guia.profileCaveat, null);
 
   // The same 12 EUR price is healthy for one and short for the other.
   const medio = reviewExpertise(niche({ pages: 104, price: 12 }),

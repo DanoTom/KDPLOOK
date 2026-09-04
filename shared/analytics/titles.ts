@@ -17,7 +17,7 @@ import { isPublishableBook } from "./book";
 export interface TitleTerm {
   term: string;
   words: number;
-  /** Titles containing it among the books that sell. */
+  /** Titles containing it among the books used as the reference group. */
   inSelling: number;
   /** Titles containing it across the whole page. */
   inAll: number;
@@ -28,11 +28,28 @@ export interface TitleTerm {
   lift: number;
 }
 
+/**
+ * How the reference group was chosen — because in a small market it is often
+ * not "the ones that sell".
+ *
+ * Two real scans of Spanish niches came back with a single book under the
+ * weekly-sale rank out of eight and eleven read. Requiring two sellers meant
+ * this card simply never appeared on the market the app is actually used in.
+ * The fix is the one the demand gate already got: keep the strict reading when
+ * the market supports it, and otherwise compare against the best-ranked part
+ * of the page and say so, instead of showing nothing.
+ */
+export type TitleBasis = "venden" | "mejores" | "posicion";
+
 export interface TitleAnalysis {
-  /** Terms the sellers share, most distinctive first. */
+  /** Terms the reference group shares, most distinctive first. */
   terms: TitleTerm[];
+  basis: TitleBasis;
   sellers: number;
   analysed: number;
+  /** Ranks the reference group holds; null when no rank was read at all. */
+  bestBsr: number | null;
+  worstBsr: number | null;
 }
 
 /**
@@ -65,16 +82,42 @@ function termsIn(title: string): Set<string> {
 
 export function analyseTitles(items: BookRecord[], sellingBsr: number): TitleAnalysis {
   const books = items.filter((b) => !b.sponsored && isPublishableBook(b) && b.title);
-  // "Sells" is the same daily-sale bar the entry criteria use; when no rank was
-  // read at all, position stands in — the top of page one is what Amazon ranks.
-  const anyRank = books.some((b) => b.bsr !== null);
-  const sellers = anyRank
-    ? books.filter((b) => b.bsr !== null && b.bsr <= sellingBsr)
-    : books.slice(0, Math.max(3, Math.ceil(books.length / 3)));
+  const ranked = books
+    .filter((b): b is BookRecord & { bsr: number } => b.bsr !== null)
+    .sort((a, b) => a.bsr - b.bsr);
 
-  if (books.length < 4 || sellers.length < 2) {
-    return { terms: [], sellers: sellers.length, analysed: books.length };
+  // First choice: the books that actually sell, on the same rank the entry
+  // criteria use. Second: when almost nobody in this market clears that bar,
+  // the best-ranked third of the page — still the books Amazon puts ahead of
+  // the rest, and the card says which reading it made. Last: no rank was
+  // published anywhere, so page order stands in.
+  let basis: TitleBasis;
+  let sellers: BookRecord[];
+  const selling = ranked.filter((b) => b.bsr <= sellingBsr);
+  if (selling.length >= 2) {
+    basis = "venden";
+    sellers = selling;
+  } else if (ranked.length >= 2) {
+    basis = "mejores";
+    sellers = ranked.slice(0, Math.max(2, Math.min(ranked.length - 1, Math.ceil(books.length / 3))));
+  } else {
+    basis = "posicion";
+    sellers = books.slice(0, Math.max(3, Math.ceil(books.length / 3)));
   }
+
+  const sellerRanks = sellers.map((b) => b.bsr).filter((v): v is number => v !== null);
+  const empty = {
+    terms: [] as TitleTerm[],
+    basis,
+    sellers: sellers.length,
+    analysed: books.length,
+    bestBsr: sellerRanks.length ? Math.min(...sellerRanks) : null,
+    worstBsr: sellerRanks.length ? Math.max(...sellerRanks) : null,
+  };
+  // Under four titles there is no "most of them" to find. When every book on
+  // the page sells, the group is the page: every lift comes out at 1 and the
+  // card correctly reports shared vocabulary and nothing distinctive.
+  if (books.length < 4 || sellers.length < 2) return empty;
 
   const countIn = (pool: BookRecord[]): Map<string, number> => {
     const counts = new Map<string, number>();
@@ -108,5 +151,5 @@ export function analyseTitles(items: BookRecord[], sellingBsr: number): TitleAna
   // Distinctive first, then common: a term the sellers own beats one everybody
   // uses, and among equals the more frequent one is the safer bet.
   terms.sort((a, b) => (b.lift - a.lift) || (b.inSelling - a.inSelling) || (b.words - a.words));
-  return { terms: terms.slice(0, 24), sellers: sellers.length, analysed: books.length };
+  return { ...empty, terms: terms.slice(0, 24) };
 }

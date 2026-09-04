@@ -1,7 +1,7 @@
 import type { AppSettings, BookRecord, MarketplaceId } from "../types";
 import type { ContentProfile, ContentType } from "./content";
 import { isPublishableBook } from "./book";
-import { CONTENT_PROFILES, inferContentType } from "./content";
+import { CONTENT_PROFILES, formatCaveat, inferContentType } from "./content";
 
 /**
  * The operator's own entry criteria, applied to a scanned niche.
@@ -32,6 +32,8 @@ export interface RedFlag {
 export interface ExpertReview {
   /** Which of the three businesses this niche is, and its own numbers. */
   profile: ContentProfile;
+  /** Where the profile's reasoning does not transfer to this niche. */
+  profileCaveat: string | null;
   gates: Gate[];
   passed: number;
   evaluated: number;
@@ -104,7 +106,8 @@ export function reviewExpertise(
   const demandBsr = demandBsrFor(marketplace);
   // A journal, a puzzle book and a non-fiction guide are judged on different
   // numbers. Read which one this niche is rather than applying one set to all.
-  const profile = CONTENT_PROFILES[opts.contentType ?? inferContentType(items)];
+  const contentType = opts.contentType ?? inferContentType(items);
+  const profile = CONTENT_PROFILES[contentType];
 
   // Commercial stationery is not a rival to beat: a Finocam diary at BSR 59
   // would satisfy "demanda demostrada" while telling a publisher nothing.
@@ -196,6 +199,7 @@ export function reviewExpertise(
     passed,
     evaluated,
     profile,
+    profileCaveat: formatCaveat(items, contentType),
     flags: detectRedFlags(items, { marketplace, totalResults, demandBsr, selling, page1 }),
     tone:
       evaluated === 0 ? "unknown"

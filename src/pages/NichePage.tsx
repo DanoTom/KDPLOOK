@@ -638,6 +638,11 @@ function ExpertGates({ items, summary }: { items: BookRecord[]; summary: NicheSu
             {review.profile.priceFloor.toFixed(2)}, {review.profile.sweetSpotPages} páginas como punto
             dulce, y un rival alcanzable por debajo de {review.profile.beatableReviews} reseñas.
           </div>
+          {/* The page rule reads a 200-page agenda as high content: right about
+              the price, wrong about the barrier. Say the part that transfers. */}
+          {review.profileCaveat ? (
+            <div className="small" style={{ marginTop: 8 }}>{review.profileCaveat}</div>
+          ) : null}
         </Alert>
 
         <div className="grid grid-3">
@@ -843,25 +848,38 @@ function TitleWordsCard({ items, marketplace }: { items: BookRecord[]; marketpla
 
   if (!analysis.terms.length) return null;
 
+  // Who the words are being compared against, said plainly. In a market as
+  // small as Spain the group is often "the best-placed", not "the ones that
+  // sell", and the card has to name which reading it made rather than claim
+  // the stronger one.
+  const group =
+    analysis.basis === "venden" ? "los que venden"
+      : analysis.basis === "mejores" ? "los que mejor se sitúan"
+        : "los primeros de la página";
+  const fmt = (n: number | null) => (n === null ? "—" : Math.round(n).toLocaleString("es"));
+  const note =
+    analysis.basis === "venden"
+      ? `De los ${analysis.analysed} títulos leídos, ${analysis.sellers} venden con regularidad. Esto es lo que dicen y los demás no.`
+      : analysis.basis === "mejores"
+        ? `Aquí casi nadie vende con regularidad, así que la comparación se hace con los ${analysis.sellers} mejor situados de los ${analysis.analysed} leídos (BSR ${fmt(analysis.bestBsr)} a ${fmt(analysis.worstBsr)}).`
+        : `Amazon no publica ranking en estas fichas, así que se comparan los ${analysis.sellers} primeros de la página con los ${analysis.analysed} leídos.`;
+
   const owned = analysis.terms.filter((t) => t.lift >= 1.4);
   const shared = analysis.terms.filter((t) => t.lift < 1.4);
 
   return (
     <Card>
-      <CardHead
-        title="Las palabras de los que venden"
-        note={`De los ${analysis.analysed} títulos leídos, ${analysis.sellers} venden. Esto es lo que dicen y los demás no.`}
-      />
+      <CardHead title={`Las palabras de ${group}`} note={note} />
       <div className="card-pad stack">
         {owned.length ? (
           <div>
             <div className="small" style={{ marginBottom: 8 }}>
-              <strong>Las usan los que venden y casi nadie más.</strong> Son las candidatas para tu
+              <strong>Las usan {group} y casi nadie más.</strong> Son las candidatas para tu
               título y tu subtítulo.
             </div>
             <div className="row-tight">
               {owned.map((term) => (
-                <span key={term.term} title={`En ${term.inSelling} de ${analysis.sellers} que venden, y en ${term.inAll} de ${analysis.analysed} en total`}>
+                <span key={term.term} title={`En ${term.inSelling} de ${analysis.sellers}, y en ${term.inAll} de ${analysis.analysed} en total`}>
                   <Badge tone="good">
                     {term.term} <span className="faint">×{term.lift.toFixed(1)}</span>
                   </Badge>
@@ -878,7 +896,7 @@ function TitleWordsCard({ items, marketplace }: { items: BookRecord[]; marketpla
             </div>
             <div className="row-tight">
               {shared.map((term) => (
-                <span key={term.term} title={`En ${term.inSelling} de ${analysis.sellers} que venden`}>
+                <span key={term.term} title={`En ${term.inSelling} de ${analysis.sellers}`}>
                   <Badge tone="neutral">{term.term}</Badge>
                 </span>
               ))}
