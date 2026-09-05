@@ -525,6 +525,81 @@ El error del paso 1 (ASIN mal) se borraba solo al tocar el paso 2, así que la
 pantalla se quedaba sin generar el correo y sin nada que explicara por qué. Cada
 paso guarda ahora su propia queja hasta que se reintenta ese paso.
 
+## Auditoría externa sobre 12 exports reales (sept. 2026)
+
+Un análisis independiente de 12 CSV exportados de la herramienta encontró
+defectos que producían conclusiones invertidas. Verificados uno a uno contra el
+código: la mayoría eran reales, dos eran malentendidos, y **dos fallos peores no
+estaban en el informe**.
+
+### Lo que envenenaba las cifras
+
+- **Los que no son libros entraban en los agregados.** `isPublishableBook`
+  devolvía `true` para toda fila sin ficha abierta, así que en un escaneo
+  rápido unos auriculares JBL contaban como competencia: en «comunicar o
+  conectar» los tres primeros puestos eran JBL, el primero con 3.770 ventas al
+  mes. Ahora una fila sin abrir solo cuenta como libro si su tarjeta trae
+  formato de libro («Tapa blanda», «Versión Kindle»); los auriculares no lo
+  traen. La excepción para fichas ya abiertas se mantiene: una agenda de
+  Finocam sí tiene formato de libro, y dejar que el formato la avalara
+  desharía el filtro de papelería.
+- **Pasado un 20% de resultados que no son libros**, el informe ya no lo lee
+  como ruido del escaneo sino como intención de búsqueda: quien escribe eso no
+  quiere un libro. Es un hallazgo, no un defecto.
+- **Un lanzamiento no tiene cifra mensual.** «Adolescencia», escaneado tres días
+  después de salir, daba BSR 2 → 10.065 unidades y 43.480 € al mes, y arrastraba
+  todas las medias. Los libros de menos de dos meses siguen en la tabla y salen
+  de las cifras que dicen ser un ritmo.
+
+### Los dos que el informe no vio, y eran peores
+
+- **Una página con cero resultados orgánicos se analizaba como si los anuncios
+  fueran el mercado.** El código decía `organic.length ? organic : items`: sin
+  orgánicos, los patrocinados pasaban a describir el nicho. Es el caso de
+  «adolescente desmotivado», que devolvió una sola fila y era un anuncio. Ahora
+  no hay sustitución y se dice en voz alta — que es, además, de los hallazgos
+  más fuertes que la app puede dar: nadie ha publicado para ese término.
+- **Las reseñas sin leer volvían a contarse como cero** en `lowReviewShare`,
+  el mismo fallo que ya se había corregido en los criterios de entrada pero en
+  un segundo sitio. Producía «100% de rivales flojos» por no haber leído nada.
+
+### Lo que era malentendido
+
+- **Los formatos ya se distinguen.** La curva BSR→ventas usa anclas distintas
+  para Kindle y papel, así que `ventas_mes_est` sí es comparable entre formatos.
+  Lo que no lo es es el `bsr` crudo.
+- **Acotar el autosuggest a Libros no es el arreglo.** Ya se probó: en
+  amazon.es esa vía responde en inglés («agenda 3 hole»), y por eso el código
+  prefiere la sin acotar. La contaminación de merch se quita a la salida, con
+  una lista de terminaciones —y deliberadamente corta: «device» estuvo en el
+  primer borrador y hubo que sacarla porque también termina frases técnicas
+  legítimas.
+- **La mediana de ventas ya está junto al score** en la pantalla, debajo del
+  medidor de oportunidad. Esa queja venía de leer el CSV aislado.
+
+### Lo que se llamaba mal
+
+`batible` medía debilidad competitiva y se leía como recomendación. Sobre una
+muestra real corría **en contra** de las ventas: un libro puntúa alto ahí en
+parte porque no lo compra nadie. Ahora se llama `debilidad_competitiva` en el
+CSV y «Debilidad» en la tabla, y el número deja de salir en verde cuando el
+libro vende menos de uno al mes: un rival flojo solo es buena noticia si es un
+rival.
+
+### Lo que se estaba tirando
+
+- **`categorias_bsr`**: las subcategorías donde rankea cada libro se leían desde
+  siempre y no se escribían nunca. Es la columna que contesta la pregunta que
+  KDP hace de verdad.
+- **`resenas_por_mes` y `meses_publicado`**: el ritmo al que un recién llegado
+  acumula reseñas dice si se puede entrar mucho mejor que el total del líder.
+  40 reseñas son un muro a una al mes y quince días a veinte. Hay una señal
+  nueva en el informe que lo calcula sobre los libros de menos de un año y lo
+  traduce a meses.
+- En el CSV de keywords, la columna **`medido`** dice qué filas pasaron por el
+  scoring. Las columnas vacías no eran promesas incumplidas: eran filas que
+  solo se expandieron.
+
 ### Lo que sigue pendiente
 
 - **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,

@@ -12,7 +12,7 @@ import { buildEntryPlan } from "../../shared/analytics/entry";
 import { reviewExpertise } from "../../shared/analytics/checklist";
 import { monthNames, seasonInsight } from "../../shared/analytics/season";
 import { findAngles } from "../../shared/analytics/angles";
-import { isPublishableBook } from "../../shared/analytics/book";
+import { isPublishableBook, reviewsPerMonth } from "../../shared/analytics/book";
 import { analyseTitles } from "../../shared/analytics/titles";
 import { demandBsrFor } from "../../shared/analytics/checklist";
 import { useNicheScan, type Department } from "../lib/scan";
@@ -109,7 +109,15 @@ export function NichePage() {
         autopublicado: book.selfPublished === null ? "" : book.selfPublished ? "si" : "no",
         es_libro_kdp: isPublishableBook(book) ? "si" : "no",
         publicado: book.publishedAt ?? "",
-        batible: book.weakness ?? "",
+        meses_publicado: book.ageMonths ?? "",
+        resenas_por_mes: reviewsPerMonth(book) ?? "",
+        // Named for what it measures, not for what it might tempt you to do.
+        // As "batible" it read as a recommendation, and it is the opposite: a
+        // book scores high here partly because nobody buys it.
+        debilidad_competitiva: book.weakness ?? "",
+        // Parsed all along and never written out, and it is the one column that
+        // answers the question KDP actually asks you — which categories.
+        categorias_bsr: book.categoryRanks.map((r) => `${r.name} #${r.rank}`).join(" | "),
         url: book.url,
       }))),
     );

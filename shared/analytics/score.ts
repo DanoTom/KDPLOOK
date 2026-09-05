@@ -4,7 +4,8 @@ import type {
 import { calibrationFor, salesPerMonth } from "./bsr";
 import type { DemandShape } from "./checklist";
 import { RESULTS_GREEN, RESULTS_LIMIT, reviewExpertise } from "./checklist";
-import { isPublishableBook } from "./book";
+import { isPublishableBook, reviewsPerMonth } from "./book";
+import { LAUNCH_MONTHS } from "./reliability";
 import { estimateRoyaltyPerUnit } from "./royalty";
 import { currencySymbolFor } from "../currency";
 
@@ -163,7 +164,12 @@ export interface ScoreOptions {
 export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSummary {
   const { settings, marketplace, keyword } = opts;
   const organic = items.filter((b) => !b.sponsored);
-  const everything = organic.length ? organic : items;
+  // No fallback to `items`. When a page comes back with nothing but sponsored
+  // slots — "adolescente desmotivado" returned exactly one row and it was an
+  // ad — the old code quietly analysed the advertising and reported it as the
+  // market. An empty organic shelf is a finding, and one of the strongest the
+  // app can make: nobody has published for this term.
+  const everything = organic;
   // Stationery stays in the table — it is on the shelf and worth seeing — but
   // out of every figure that describes the market for a publisher.
   const nonBooks = everything.filter((b) => !isPublishableBook(b));
@@ -176,8 +182,16 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
   const ratings = nums(top.map((b) => b.rating));
   const reviews = nums(top.map((b) => b.reviews));
   const bsrs = nums(top.map((b) => b.bsr));
-  const sales = nums(top.map((b) => b.salesPerMonth));
-  const revenues = nums(top.map((b) => b.revenuePerMonth));
+  // A rank days after publication is a launch spike, and multiplying it by
+  // thirty invents a month that never happened: "Adolescencia" scanned three
+  // days after release sat at BSR 2 and scored 10.065 units and 43.480 € for
+  // the month. One row like that drags every mean in the report. They stay in
+  // the table — they are on the shelf and worth seeing — and out of the
+  // figures that claim to describe a rate.
+  const settled = top.filter((b) => b.ageMonths === null || b.ageMonths >= LAUNCH_MONTHS);
+  const launching = top.filter((b) => b.ageMonths !== null && b.ageMonths < LAUNCH_MONTHS);
+  const sales = nums(settled.map((b) => b.salesPerMonth));
+  const revenues = nums(settled.map((b) => b.revenuePerMonth));
   const pages = nums(enriched.map((b) => b.pages));
   const ages = nums(enriched.map((b) => b.ageMonths));
 
@@ -186,8 +200,14 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     ? knownPublisher.filter((b) => b.selfPublished).length / knownPublisher.length
     : null;
 
-  const lowReviewShare = top.length
-    ? top.filter((b) => (b.reviews ?? 0) < settings.weakReviewThreshold).length / top.length
+  // Only over the rows whose review count was actually read. Counting a
+  // listing whose review markup failed to parse as "zero reseñas" reported a
+  // page full of untouched rivals when what had happened was that nothing was
+  // read — the same mistake, in a second place, that the entry criteria were
+  // already fixed for.
+  const reviewed = top.filter((b) => b.reviews !== null);
+  const lowReviewShare = reviewed.length
+    ? reviewed.filter((b) => (b.reviews as number) < settings.weakReviewThreshold).length / reviewed.length
     : null;
 
   const freshShare = ages.length
@@ -289,6 +309,23 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     reviewExpertise(items, { marketplace, totalResults: opts.totalResults, settings }),
   );
 
+  // An organic shelf with nothing on it is the loudest thing this app can say,
+  // and it used to arrive as an almost-empty report with no explanation.
+  if (!organic.length) {
+    summary.signals.push({
+      id: "sin-organicos",
+      label: "Sin resultados orgánicos",
+      value: items.length ? `${items.length} patrocinados` : "página vacía",
+      tone: "bad",
+      hint: "Todo lo que devuelve esta búsqueda es publicidad. Antes se analizaban esos anuncios como si fueran el mercado; ahora no. Puede significar que nadie ha publicado para este término —que es una oportunidad— o que Amazon no reconoce la frase. Compruébalo escribiéndola en Amazon.",
+    });
+    summary.verdict.reasoning.push(
+      items.length
+        ? `Los ${items.length} resultados de esta búsqueda son anuncios: no hay ni un libro posicionado de forma orgánica.`
+        : "La búsqueda no devolvió ningún resultado.",
+    );
+  }
+
   // Stationery on page one is a finding, not noise to hide: it is shelf space a
   // self-published book cannot take, whatever the rest of the numbers say.
   if (nonBooks.length) {
@@ -298,14 +335,44 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
       label: "No son libros KDP",
       value: `${nonBooks.length} de ${pool.length + nonBooks.length}`,
       tone: share >= 0.3 ? "bad" : "warn",
-      hint: "Agendas y cuadernos comerciales (Finocam, Kokonote…): sin páginas ni editorial en su ficha. Ocupan la primera página pero no son competencia que puedas desplazar, así que quedan fuera de las cifras del nicho.",
+      hint: "Papelería comercial (Finocam, Kokonote…) y productos que no son libros: sin formato de libro, o sin páginas ni editorial en su ficha. Ocupan la primera página pero no son competencia que puedas desplazar, así que quedan fuera de las cifras del nicho.",
     });
     if (share >= 0.25) {
       summary.verdict.reasoning.push(
-        `${nonBooks.length} de los ${pool.length + nonBooks.length} resultados son papelería comercial, no libros: ` +
+        `${nonBooks.length} de los ${pool.length + nonBooks.length} resultados no son libros: ` +
         `te quitan sitio en la primera página aunque no compitan contigo.`,
       );
     }
+    // Past about a fifth, the reading is not "there is noise on this page" but
+    // "Amazon has no book inventory for this query" — which is to say the
+    // person typing it is not looking for a book at all. That is a finding
+    // about the search, and a much more useful one than the noise.
+    if (share >= NON_BOOK_INTENT) {
+      summary.verdict.reasoning.push(
+        `Con ${Math.round(share * 100)}% de resultados que no son libros, lo más probable es que quien busca esto ` +
+        `no quiera un libro. No es ruido del escaneo: es la intención de búsqueda.`,
+      );
+    }
+  }
+
+  // How fast the recent arrivals are collecting reviews. This is the number
+  // that answers "how long until I look as established as these people" — the
+  // leader's total only says how long it has been here.
+  const newcomers = enriched.filter((b) => b.ageMonths !== null && b.ageMonths <= 12 && b.ageMonths >= 1);
+  const velocities = nums(newcomers.map(reviewsPerMonth));
+  const medianVelocity = median(velocities);
+  if (medianVelocity !== null && velocities.length >= 3) {
+    const leader = medianReviews;
+    const months = leader !== null && medianVelocity > 0 ? Math.round(leader / medianVelocity) : null;
+    summary.signals.push({
+      id: "ritmo-resenas",
+      label: "Reseñas al mes de los nuevos",
+      value: `${medianVelocity}`,
+      tone: medianVelocity >= 3 ? "good" : medianVelocity >= 1 ? "warn" : "bad",
+      hint: months !== null
+        ? `Los libros de menos de un año reúnen unas ${medianVelocity} reseñas al mes. A ese ritmo, alcanzar la mediana del nicho (${Math.round(leader ?? 0)} reseñas) te llevaría unos ${months} meses. Eso —y no cuántas tiene el líder— es la barrera real.`
+        : `Los libros de menos de un año reúnen unas ${medianVelocity} reseñas al mes: ese es el ritmo al que tendrías que sumar prueba social.`,
+    });
   }
 
   // A book published weeks ago holds a rank that reflects its launch, not a
@@ -313,14 +380,14 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
   // is noise; several of them are the demand figure above being inflated, and
   // that is worth saying before anyone decides to enter on the strength of it.
   const dated = enriched.filter((b) => b.ageMonths !== null);
-  const launches = dated.filter((b) => (b.ageMonths as number) < 2);
-  if (dated.length >= 4 && launches.length / dated.length >= 0.25) {
+  const launches = dated.filter((b) => (b.ageMonths as number) < LAUNCH_MONTHS);
+  if (launching.length || (dated.length >= 4 && launches.length / dated.length >= 0.25)) {
     summary.signals.push({
       id: "launches",
       label: "Recién publicados",
       value: `${launches.length} de ${dated.length}`,
       tone: "warn",
-      hint: "Llevan menos de dos meses a la venta. Su BSR todavía refleja el empujón del lanzamiento, así que sus ventas estimadas —y con ellas la demanda del nicho— salen altas.",
+      hint: `Llevan menos de ${LAUNCH_MONTHS} meses a la venta, así que su BSR todavía refleja el empujón del lanzamiento y no un ritmo. Siguen en la tabla, pero quedan fuera de las ventas medianas del nicho: uno solo puede multiplicarlas.`,
     });
     summary.verdict.reasoning.push(
       `${launches.length} de los ${dated.length} libros con fecha llevan menos de dos meses publicados: la demanda estimada está tirando hacia arriba.`,
@@ -402,6 +469,9 @@ const VERDICT_ORDER: Array<Verdict["label"]> = ["Excelente", "Bueno", "Ajustado"
 const VERDICT_TONE: Record<Verdict["label"], Verdict["tone"]> = {
   "Excelente": "great", "Bueno": "good", "Ajustado": "mixed", "Difícil": "bad", "Sin datos": "unknown",
 };
+
+/** Above this share of non-books, the query itself is not about books. */
+const NON_BOOK_INTENT = 0.2;
 
 /**
  * Hold the headline to what the entry criteria allow.

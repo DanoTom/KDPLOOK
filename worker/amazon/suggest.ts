@@ -298,6 +298,40 @@ export interface ExpandResult {
  * list — is one Amazon considers a strong query, which is the closest proxy
  * for search volume that is available without a paid data source.
  */
+/**
+ * Completions that are not about books.
+ *
+ * Amazon's suggestion endpoint answers for the whole shop, and narrowing it to
+ * the books alias is not the fix: on amazon.es that alias replies in English
+ * ("agenda 3 hole", "august 2026-july2027 school agenda"), which is why the
+ * probe order below prefers the unnarrowed one. So the merchandise is filtered
+ * on the way out instead. These are the endings that turn a book phrase into a
+ * T-shirt: real completions from one session were "padres shirt",
+ * "adolescentes ropa", "depresión sonora vinyl" and "dog communication buttons".
+ *
+ * Deliberately narrow. "device" was on the first draft of this list and had to
+ * come off: it ends legitimate technical phrases too, and a filter that eats
+ * real keywords is worse than the merchandise it removes.
+ */
+const MERCH_WORDS = new Set([
+  "shirt", "tshirt", "t-shirt", "hoodie", "sweatshirt", "jersey", "hat", "cap",
+  "mug", "poster", "decor", "decal", "decals", "stickers", "sticker", "tags",
+  "pin", "pins", "keychain", "llavero", "camiseta", "camisetas", "sudadera",
+  "ropa", "vestido", "vestidos", "taza", "poster", "lampara", "cojin",
+  "vinyl", "vinilo", "cd", "dvd", "blu-ray", "headset", "headphones",
+  "auriculares", "buttons", "juguete", "juguetes", "disfraz",
+]);
+
+/** True when the phrase ends in something you wear, hang or plug in. */
+export function isMerchPhrase(phrase: string): boolean {
+  const words = phrase.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  // Only the last word or two: "libro de comunicación" must survive a list
+  // that happens to contain the word "device" somewhere in the middle.
+  return MERCH_WORDS.has(words[words.length - 1])
+    || (words.length > 1 && MERCH_WORDS.has(words[words.length - 2]));
+}
+
 export async function expandKeywords(
   env: Env,
   settings: AppSettings,
@@ -329,6 +363,7 @@ export async function expandKeywords(
     if (reached) reachable += 1;
     if (suggestions.length) answered += 1;
     suggestions.forEach((phrase, rank) => {
+      if (isMerchPhrase(phrase)) return;
       const existing = map.get(phrase);
       if (existing) {
         existing.hits += 1;

@@ -25,6 +25,8 @@ import { isPublishableBook } from "../shared/analytics/book";
 import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content";
 import { analyseTitles } from "../shared/analytics/titles";
 import { discoverIdeas } from "../shared/analytics/discover";
+import { reviewsPerMonth } from "../shared/analytics/book";
+import { isMerchPhrase } from "../worker/amazon/suggest";
 import {
   HIDDEN_CATEGORY_SLOTS, categoryRequestEmail, readPlacements,
 } from "../shared/analytics/placement";
@@ -1103,7 +1105,11 @@ console.log("\npapeleria comercial fuera de las cifras del nicho");
   const flagged = mixed.signals.find((sig) => sig.id === "nonbooks");
   check("avisa de cuantos resultados no son libros", flagged?.value, "6 de 14");
   truthy("y lo dice en el veredicto cuando son muchos",
-    mixed.verdict.reasoning.some((r) => r.includes("papelería comercial")));
+    mixed.verdict.reasoning.some((r) => r.includes("no son libros")));
+  // Pasado un quinto, la lectura ya no es "hay ruido" sino "quien busca esto
+  // no quiere un libro".
+  truthy("y a partir de un quinto lo lee como intención de búsqueda",
+    mixed.verdict.reasoning.some((r) => r.includes("intención de búsqueda")));
 
   // The entry plan must aim at a book, not at a diary selling 1.600 a month.
   const plan = buildEntryPlan({
@@ -1539,6 +1545,99 @@ console.log("\nde donde salen las ideas");
 
   // Too short a list to tell a subniche from the shelf's own name.
   check("con una lista corta no opina", discoverIdeas(lista.slice(0, 4)).phrases.length, 0);
+}
+
+console.log("\nlo que envenenaba las cifras del nicho");
+{
+  const settings = {
+    printing: DEFAULT_PRINTING_COSTS, weakReviewThreshold: 100,
+    salesCurveCalibration: 1, calibrationByMarket: {}, calibrationSamples: [],
+  } as unknown as AppSettings;
+  const base = (i: number, over: Partial<BookRecord> = {}): BookRecord => ({
+    asin: `B0${String(i).padStart(8, "0")}`, title: `Libro ${i}`, author: "A", url: "", image: "",
+    format: "paperback", formatLabel: "Tapa blanda", price: 14.99, rating: 4.4, reviews: 40,
+    sponsored: false, kindleUnlimited: false, position: i, bsr: 80_000, categoryRanks: [],
+    pages: 150, publisher: "Independently published", publishedAt: null, language: null, isbn: null,
+    dimensions: null, selfPublished: true, enriched: true, salesPerMonth: 3, revenuePerMonth: 18,
+    royaltyPerUnit: 6, ageMonths: 30, weakness: 50, ...over,
+  });
+  const scan = (items: BookRecord[], totalResults: number | null = 800) =>
+    summariseNiche(items, { keyword: "k", marketplace: "es", settings, totalResults, resultsCountText: null });
+
+  // --- unos auriculares JBL no son el mercado de un libro -------------------
+  // En un escaneo rápido no se abren las fichas, y antes toda fila sin abrir
+  // contaba como libro. Los tres primeros de "comunicar o conectar" eran JBL.
+  const auriculares = [1, 2, 3].map((i) => base(i, {
+    title: `Auriculares JBL ${i}`, format: "other", formatLabel: "", enriched: false,
+    pages: null, publisher: null, salesPerMonth: [3770, 448, 200][i - 1], bsr: 40,
+  }));
+  const libritos = [4, 5, 6, 7, 8, 9].map((i) => base(i, { enriched: false, pages: null, publisher: null }));
+  const sucio = scan([...auriculares, ...libritos]);
+  check("los auriculares no cuentan como libros", sucio.analysed, 6);
+  check("y la mediana de ventas es la de los libros", sucio.medianSalesPerMonth, 3);
+  truthy("y se avisa de que están ahí",
+    sucio.signals.some((sig) => sig.id === "nonbooks"));
+
+  // Pasado un quinto de resultados que no son libros, la conclusión cambia:
+  // no es ruido del escaneo, es que quien busca eso no quiere un libro.
+  truthy("y con la mitad se lee como intención de búsqueda",
+    scan([...auriculares, ...libritos.slice(0, 3)]).verdict.reasoning
+      .some((r) => r.includes("intención de búsqueda")));
+
+  // --- una página que es solo publicidad no es un mercado ------------------
+  const soloAnuncios = scan([base(1, { sponsored: true, salesPerMonth: 900 })]);
+  truthy("una página solo con anuncios lo dice",
+    soloAnuncios.signals.some((sig) => sig.id === "sin-organicos"));
+  check("y no analiza los anuncios como si fueran el mercado", soloAnuncios.analysed, 0);
+  truthy("y lo explica en el veredicto",
+    soloAnuncios.verdict.reasoning.some((r) => r.includes("anuncios")));
+
+  // --- reseñas sin leer no son cero reseñas --------------------------------
+  const sinLeer = scan(Array.from({ length: 8 }, (_, i) => base(i + 1, { reviews: null })));
+  check("no leer las reseñas no es tener pocas", sinLeer.lowReviewShare, null);
+  const mitad = scan([
+    ...Array.from({ length: 4 }, (_, i) => base(i + 1, { reviews: 5 })),
+    ...Array.from({ length: 4 }, (_, i) => base(i + 5, { reviews: null })),
+  ]);
+  check("y la proporción se calcula sobre las leídas", mitad.lowReviewShare, 1);
+
+  // --- un libro de tres días no tiene cifra mensual ------------------------
+  // "Adolescencia", BSR 2 a los tres días: 10.065 unidades y 43.480 € al mes.
+  const conLanzamiento = scan([
+    base(1, { title: "Adolescencia", ageMonths: 0.1, bsr: 2, salesPerMonth: 10_064.9, revenuePerMonth: 43_480 }),
+    ...Array.from({ length: 7 }, (_, i) => base(i + 2, { salesPerMonth: 13, revenuePerMonth: 60 })),
+  ]);
+  check("un lanzamiento no arrastra la media del nicho", conLanzamiento.avgSalesPerMonth, 13);
+  truthy("pero se dice que está ahí",
+    conLanzamiento.signals.some((sig) => sig.id === "launches"));
+}
+
+console.log("\nmerch y ritmo de resenas");
+{
+  // Completions reales de una sesión: la sugerencia de Amazon responde para
+  // toda la tienda, no solo para libros.
+  for (const phrase of ["padres shirt", "adolescentes ropa", "depresión sonora vinyl",
+                        "communication headset", "dog communication buttons", "gracias tags quince"]) {
+    truthy(`descarta "${phrase}"`, isMerchPhrase(phrase));
+  }
+  for (const phrase of ["agenda para psicologos", "comunicación no violenta",
+                        "libro de comunicación device driver", "adolescentes difíciles"]) {
+    check(`conserva "${phrase}"`, isMerchPhrase(phrase), false);
+  }
+
+  // El ritmo al que un recién llegado suma reseñas dice más que el total del
+  // líder: 40 reseñas son un muro a una al mes y quince días a veinte.
+  const b = (over: Partial<BookRecord>): BookRecord => ({
+    asin: "B000000001", title: "T", author: "A", url: "", image: "", format: "paperback",
+    formatLabel: "Tapa blanda", price: 14.99, rating: 4.4, reviews: 40, sponsored: false,
+    kindleUnlimited: false, position: 1, bsr: 50_000, categoryRanks: [], pages: 150,
+    publisher: "Independently published", publishedAt: null, language: null, isbn: null,
+    dimensions: null, selfPublished: true, enriched: true, salesPerMonth: 5, revenuePerMonth: 30,
+    royaltyPerUnit: 6, ageMonths: 10, weakness: 50, ...over,
+  });
+  check("cuatro reseñas al mes", reviewsPerMonth(b({ reviews: 40, ageMonths: 10 })), 4);
+  check("sin reseñas leídas no hay ritmo", reviewsPerMonth(b({ reviews: null })), null);
+  check("y con menos de un mes tampoco", reviewsPerMonth(b({ ageMonths: 0.4 })), null);
 }
 
 console.log("\nlas diez categorias");

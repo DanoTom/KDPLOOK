@@ -29,7 +29,7 @@ const COLUMNS: Column[] = [
   { key: "revenuePerMonth", label: "Regalía/mes", numeric: true, sortable: true, title: "Ventas estimadas × regalía por unidad" },
   { key: "pages", label: "Págs.", numeric: true, sortable: true },
   { key: "publishedAt", label: "Publicado", sortable: true },
-  { key: "weakness", label: "Batible", numeric: true, sortable: true, title: "Cuán alcanzable parece este competidor (0-100)" },
+  { key: "weakness", label: "Debilidad", numeric: true, sortable: true, title: "Cuán flojo está este competidor (0-100). No es una recomendación: un libro puntúa alto aquí en parte porque no lo compra nadie, así que solo cuenta si además vende." },
   { key: "actions", label: "" },
 ];
 
@@ -151,10 +151,24 @@ export function BookTable({
                 <td className="num">{fmtInt(book.pages)}</td>
                 <td className="small">{book.publishedAt ? fmtDate(book.publishedAt) : "—"}</td>
                 <td className="num">
+                  {/* Green here used to mean "easy target" on books nobody
+                      buys, which is the inverted reading of the whole score:
+                      across a real sample, weakness ran *against* sales. A weak
+                      rival is only good news when it is a rival — when it
+                      actually sells — so a book that moves less than one copy a
+                      month gets the number without the invitation. */}
                   {book.weakness !== null ? (
-                    <Badge tone={book.weakness >= 65 ? "good" : book.weakness >= 45 ? "warn" : "bad"}>
-                      {book.weakness}
-                    </Badge>
+                    (book.salesPerMonth ?? 0) < 1 ? (
+                      <Badge tone="neutral">
+                        <span title="Este libro apenas vende, así que ser fácil de superar no significa nada.">
+                          {book.weakness}
+                        </span>
+                      </Badge>
+                    ) : (
+                      <Badge tone={book.weakness >= 65 ? "good" : book.weakness >= 45 ? "warn" : "bad"}>
+                        {book.weakness}
+                      </Badge>
+                    )
                   ) : "—"}
                 </td>
                 <td>

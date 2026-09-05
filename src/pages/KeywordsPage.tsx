@@ -313,6 +313,11 @@ export function KeywordsPage() {
           precio_medio: score?.avgPrice ?? "",
           oportunidad: opportunities.get(record.keyword)?.score ?? "",
           veredicto: opportunities.get(record.keyword)?.label ?? "",
+          // Half these columns come from the scoring pass, which is a separate
+          // and much slower step. Exporting them blank with no explanation read
+          // as "the tool promises these and never computes them" — so the file
+          // now says which rows were scored and which were only expanded.
+          medido: score ? "si" : "no",
         };
       })),
     );
