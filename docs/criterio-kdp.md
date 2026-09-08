@@ -600,6 +600,77 @@ rival.
   scoring. Las columnas vacías no eran promesas incumplidas: eran filas que
   solo se expandieron.
 
+## Verificación en vivo contra amazon.es (sept. 2026)
+
+Primera vez que alguien compara la app contra la tienda real: 10 búsquedas, en
+profundo, con la página de Amazon abierta al lado. Cinco arreglos salieron de
+ahí, y **el hallazgo más importante no es ninguno de los que el informe
+señalaba** — está escondido en su propia evidencia.
+
+### El hueco de posiciones no eran libros perdidos
+
+El informe encontró tablas que iban 1-14 y saltaban a 49-63, y lo leyó como
+treinta libros excluidos en silencio. No lo eran: cada página se numeraba desde
+`(page - 1) * 48`, suponiendo que Amazon llena todas las páginas. Ahora se
+numera de corrido sobre lo que llegó de verdad.
+
+### Pero eso destapa lo grave: Amazon nos sirve un tercio del estante
+
+Que la página 1 devolviera **14 libros orgánicos** es el dato. Una persona ve
+unos cincuenta. Amazon sirve a un servidor una página recortada, y las cifras
+del nicho se estaban calculando sobre ese tercio **sin decirlo**. No hay forma
+de detectarlo mirando la página; solo por el descuadre: una búsqueda que declara
+miles de resultados no tiene por qué devolver catorce libros. Ahora, cuando eso
+pasa, el escaneo lo avisa y manda al bookmarklet, que lee desde el navegador y
+sí ve el estante entero.
+
+### El `-1 día` en todas las fechas
+
+Sistemático en toda la sesión. No era el parseo, que construye la fecha como
+texto: era la **visualización**. `2026-08-22` es un día del calendario, no un
+instante; leído como medianoche UTC e impreso en hora local, al oeste de
+Greenwich sale el día anterior. Desde Argentina, todas las fechas salían un día
+antes.
+
+### «Buscar ideas» proponía basura por dos motivos concretos
+
+40-60% de frases inservibles, muy por encima del 20% de alarma. Y el informe
+identificó **los dos patrones**, que valen más que el porcentaje:
+
+- **`(Best Seller | No Ficción)`** — la etiqueta de marketing que una editorial
+  estampa en sus propios títulos. Repetirse entre ellos es exactamente lo que el
+  minero premia. Se quita antes de formar ninguna frase.
+- **«Espasa Gastronomía»** — el nombre del sello. Se descarta una frase que
+  contiene la editorial **compartida por todos** los libros que la llevan.
+
+### El clasificador decide por longitud, y al borde eso no dice nada
+
+Un nicho de autoayuda con mediana de 106,5 páginas salió «Medio contenido». El
+corte de 108 es real, pero a un paso de él la longitud no dice de qué va el
+libro. Ahora, dentro de ±10 páginas del corte, el informe declara la etiqueta
+dudosa y manda a cambiarla a mano.
+
+### Lo que se confirmó bien
+
+- La heurística de formato para no-libros **no produjo un solo falso negativo**
+  en 10 búsquedas. Los dispositivos, películas y accesorios se marcaron bien.
+- Ningún falso positivo de patrocinados: ninguna página sana acabó reportando
+  «sin resultados orgánicos».
+- Precio, valoración y reseñas: **100% de coincidencia** con la ficha real.
+- Tasa de bloqueo baja, y la app lo declara cuando ocurre en vez de disimularlo.
+
+### Pendiente, con motivo
+
+- **El contador de patrocinados subestima hasta 9x** porque el bloque
+  «carrusel» de marca no se captura. No corrompe ninguna cifra del nicho —los
+  no capturados tampoco entran como orgánicos— así que es exactitud de un número
+  en pantalla, no una conclusión torcida. Necesita trabajo de parser.
+- **Dos fechas con saltos de años** (una de 2019 que era 2022, otra de 2012 que
+  era 2018). Apuntan a leer la fecha de una reedición. Hace falta el HTML crudo
+  de esas fichas para saberlo.
+- **La tabla de BSR por posición** se quedó en 2 puntos de los 36 pedidos. Sigue
+  siendo el dato que falta para dejar de extrapolar.
+
 ### Lo que sigue pendiente
 
 - **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,

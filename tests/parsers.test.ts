@@ -1311,6 +1311,16 @@ console.log("\nbajo, medio y alto contenido son tres negocios");
     { marketplace: "es", totalResults: 800, settings });
   check("y no avisa cuando sí es no ficción", guia.profileCaveat, null);
 
+  // Un nicho de autoayuda con mediana 106,5 salía "Medio contenido" porque el
+  // corte de 108 decide por longitud, y ahí la longitud no dice el género.
+  const alBorde = reviewExpertise(niche({ pages: 106, price: 12.99 }),
+    { marketplace: "es", totalResults: 800, settings });
+  truthy("avisa cuando la etiqueta cae justo en el corte de 108",
+    Boolean(alBorde.profileCaveat) && alBorde.profileCaveat!.includes("dudosa"));
+  const lejos = reviewExpertise(niche({ pages: 160, price: 16.99, title: "Guia de terapia" }),
+    { marketplace: "es", totalResults: 800, settings });
+  check("y no avisa cuando está lejos del corte", lejos.profileCaveat, null);
+
   // The same 12 EUR price is healthy for one and short for the other.
   const medio = reviewExpertise(niche({ pages: 104, price: 12 }),
     { marketplace: "es", totalResults: 800, settings });
@@ -1545,6 +1555,32 @@ console.log("\nde donde salen las ideas");
 
   // Too short a list to tell a subniche from the shelf's own name.
   check("con una lista corta no opina", discoverIdeas(lista.slice(0, 4)).phrases.length, 0);
+
+  // --- lo que encontró la verificación en vivo -----------------------------
+  // "(Best Seller | No Ficción)" es la etiqueta de marketing de una editorial,
+  // y repetirse entre sus títulos es justo lo que el minero premia.
+  const conEtiqueta = discoverIdeas([
+    b(1, "Hábitos atómicos (Best Seller | No Ficción)"),
+    b(2, "El poder del ahora (Best Seller | No Ficción)"),
+    b(3, "Cómo dormir mejor"), b(4, "Cómo hablar en público"),
+    b(5, "Guía de meditación"), b(6, "Respirar y calmarse"),
+  ]);
+  for (const basura of ["best seller", "best seller no ficción", "seller no ficción"]) {
+    check(`no propone la etiqueta "${basura}"`,
+      conEtiqueta.phrases.some((p) => p.term === basura), false);
+  }
+
+  // "Espasa Gastronomía" es el sello, no un tema: nadie lo busca.
+  const conSello = discoverIdeas([
+    b(1, "Espasa Gastronomía: pan casero", { publisher: "Espasa" }),
+    b(2, "Espasa Gastronomía: postres", { publisher: "Espasa" }),
+    b(3, "Recetas de arroz", { publisher: "Otra" }),
+    b(4, "Recetas de pescado", { publisher: "Otra" }),
+    b(5, "Cocinar con horno", { publisher: "Otra" }),
+    b(6, "Cocinar al vapor", { publisher: "Otra" }),
+  ]);
+  check("no propone el nombre del sello editorial",
+    conSello.phrases.some((p) => p.term.includes("espasa")), false);
 }
 
 console.log("\nlo que envenenaba las cifras del nicho");

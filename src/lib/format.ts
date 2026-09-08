@@ -33,9 +33,17 @@ export function fmtCompact(value: number | null | undefined, fallback = "—"): 
 
 export function fmtDate(value: number | string | null | undefined, fallback = "—"): string {
   if (value === null || value === undefined) return fallback;
-  const date = typeof value === "number" ? new Date(value) : new Date(value + "T00:00:00Z");
+  const isDay = typeof value === "string";
+  const date = isDay ? new Date(`${value}T00:00:00Z`) : new Date(value as number);
   if (Number.isNaN(date.getTime())) return fallback;
-  return date.toLocaleDateString(LOCALE, { day: "2-digit", month: "short", year: "numeric" });
+  // "2026-08-22" is a calendar day, not an instant. Read as UTC midnight and
+  // then printed in local time, every publication date west of Greenwich came
+  // out a day early — an off-by-one that showed up in a live check as a
+  // consistent -1 día across every book, from Argentina.
+  return date.toLocaleDateString(LOCALE, {
+    day: "2-digit", month: "short", year: "numeric",
+    ...(isDay ? { timeZone: "UTC" } : {}),
+  });
 }
 
 export function fmtDateTime(value: number | null | undefined, fallback = "—"): string {

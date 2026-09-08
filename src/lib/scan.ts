@@ -49,6 +49,12 @@ function sleep(ms: number): Promise<void> {
 const EMPTY_PROGRESS: ScanProgress = { phase: "idle", label: "", done: 0, total: 0 };
 
 /**
+ * Below this many organic books on a query that claims real volume, the page
+ * that arrived is not the page that exists.
+ */
+const SHORT_PAGE = 20;
+
+/**
  * Drives a niche scan across several small API calls.
  *
  * Each Worker invocation fetches exactly one upstream page, which keeps every
@@ -123,7 +129,34 @@ export function useNicheScan(settings: AppSettings) {
       setProgress({ phase: "search", label: `Página ${page} de ${pages}`, done: page, total: pages });
     }
 
+    // Each page was parsed on its own and numbered from `(page - 1) * 48`, on
+    // the assumption that Amazon fills every page. It does not — and it gives a
+    // datacenter far fewer results than a browser — so a scan whose first page
+    // came back with fourteen books numbered them 1-14 and then jumped to 49.
+    // A live check read that gap as thirty missing books. Nothing was missing;
+    // the numbering was describing a page that never arrived.
     const items = Array.from(collected.values());
+    let organicSeen = 0;
+    for (const item of items) {
+      if (!item.sponsored) item.position = ++organicSeen;
+    }
+
+    // Amazon serves a datacenter a shorter page than it serves a browser, and
+    // that is the difference between a niche report and a rumour. A live check
+    // found a first page with fourteen organic books where a person sees about
+    // fifty — the numbers were computed off a third of the shelf without ever
+    // saying so. There is no way to detect this from the page itself, only from
+    // the mismatch: a query claiming thousands of results has no business
+    // returning a handful of books.
+    if (totalResults !== null && totalResults >= 100 && organicSeen < SHORT_PAGE) {
+      warnings.push(
+        `Amazon devolvió solo ${organicSeen} libros orgánicos para una búsqueda que dice tener ` +
+        `${totalResults.toLocaleString("es")} resultados. Una persona ve muchos más: esto es la ` +
+        `página recortada que Amazon sirve a un servidor. Las cifras salen de lo que llegó, así ` +
+        `que léelas con reservas y, si el nicho te importa, captúralo con el bookmarklet desde tu ` +
+        `navegador.`,
+      );
+    }
     if (!items.length) {
       setProgress(EMPTY_PROGRESS);
       // Amazon saying "nothing here" and this code failing to read the page look

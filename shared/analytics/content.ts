@@ -160,10 +160,33 @@ const FORMAT_WORDS = [
 /** Half the page naming a stationery format is the niche, not a coincidence. */
 const FORMAT_SHARE = 0.5;
 
+/**
+ * How close to the flat-fee boundary the call has to be before it is a coin
+ * toss. A live check found a self-help niche — original prose by any human
+ * reading — classified as medium content on a median of 106,5 pages: the rule
+ * decided by length, which near the line says nothing about the genre.
+ */
+const BOUNDARY_WINDOW = 10;
+
 export function formatCaveat(items: BookRecord[], type: ContentType): string | null {
+  const books = items.filter((b) => !b.sponsored && isPublishableBook(b));
+  const lengths = books.map((b) => b.pages).filter((v): v is number => v !== null && v > 0);
+  if (lengths.length >= 4) {
+    const sorted = [...lengths].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const medianPages = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    if (Math.abs(medianPages - FLAT_FEE_PAGES) <= BOUNDARY_WINDOW) {
+      return (
+        `Etiqueta dudosa: la mediana de páginas del nicho (${Math.round(medianPages)}) cae justo en el ` +
+        `corte de ${FLAT_FEE_PAGES} que separa medio de alto contenido, y ahí la longitud no dice de qué ` +
+        `va el libro. Si lo que se vende aquí es texto escrito —no plantillas ni pasatiempos—, trátalo ` +
+        `como alto contenido: cambia el tipo a mano y los criterios se recalculan.`
+      );
+    }
+  }
   if (type !== "alto") return null;
-  const titles = items
-    .filter((b) => !b.sponsored && isPublishableBook(b) && b.title)
+  const titles = books
+    .filter((b) => b.title)
     .map((b) => `${b.title} ${b.subtitle ?? ""}`.toLowerCase());
   if (titles.length < 4) return null;
   const hits = titles.filter((t) => FORMAT_WORDS.some((w) => new RegExp(`(^|[^a-záéíóúñ])${w}([^a-záéíóúñ]|$)`).test(t)));

@@ -120,6 +120,22 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
+/**
+ * Publisher furniture printed inside the title.
+ *
+ * A live check on real Spanish branches found the miner offering "best seller
+ * no ficción" as a niche in two branches out of three: it is not a subject, it
+ * is the marketing tag "(Best Seller | No Ficción)" that a publisher stamps on
+ * its own titles, and repetition across those titles is exactly what the miner
+ * rewards. Stripped before any phrase is built, because no amount of scoring
+ * downstream can tell it apart from a real recurring theme.
+ */
+const IMPRINT_TAGS = /\((?=[^)]*\|)[^)]*\)|\((?:best\s?seller|bestseller|nueva\s+edici[oó]n|edici[oó]n\s+(?:revisada|ampliada|especial|ilustrada)|no\s+ficci[oó]n|saga|colecci[oó]n|serie)[^)]*\)/gi;
+
+function stripImprintTags(title: string): string {
+  return title.replace(IMPRINT_TAGS, " ");
+}
+
 /** Words that carry the meaning: what makes "sin gluten" worth more than "sin". */
 function contentWords(phrase: string): number {
   return phrase.split(" ").filter((w) => !STOPWORDS.has(w) && !/^\d+$/.test(w)).length;
@@ -154,6 +170,19 @@ function phrasesIn(title: string): Set<string> {
   return out;
 }
 
+/** True when the phrase is the shared publisher of every book carrying it. */
+function isImprintName(term: string, carriers: BookRecord[]): boolean {
+  const houses = new Set(
+    carriers.map((b) => (b.publisher ?? "").toLowerCase().trim()).filter(Boolean),
+  );
+  if (houses.size !== 1) return false;
+  const house = [...houses][0];
+  // Compare on the distinctive first word: catalogues print "Espasa" as the
+  // publisher and "Espasa Gastronomía" in the title.
+  const head = house.split(/[\s,.]+/)[0];
+  return head.length >= 4 && term.toLowerCase().includes(head);
+}
+
 export function discoverIdeas(items: BookRecord[]): Discovery {
   const books = items.filter((b) => !b.sponsored && isPublishableBook(b) && b.title);
   const dated = books.filter((b) => b.ageMonths !== null).length;
@@ -180,7 +209,7 @@ export function discoverIdeas(items: BookRecord[]): Discovery {
   // --- the phrases the list repeats -----------------------------------------
   const carriers = new Map<string, BookRecord[]>();
   for (const book of books) {
-    for (const term of phrasesIn(`${book.title} ${book.subtitle ?? ""}`)) {
+    for (const term of phrasesIn(stripImprintTags(`${book.title} ${book.subtitle ?? ""}`))) {
       const list = carriers.get(term);
       if (list) list.push(book);
       else carriers.set(term, [book]);
@@ -197,6 +226,11 @@ export function discoverIdeas(items: BookRecord[]): Discovery {
     const words = term.split(" ").length;
     const meaning = contentWords(term);
     if (meaning < MIN_MEANING) continue;
+    // A phrase that is the publisher's own name is a collection, not a niche.
+    // "Espasa Gastronomía" repeats across a branch because one house prints a
+    // series under it — nobody searches for it to find a subject. Only counts
+    // when every book carrying the phrase comes from that same house.
+    if (isImprintName(term, group)) continue;
     const ranks = group.map((b) => b.bsr).filter((v): v is number => v !== null && v > 0);
     const medianBsr = median(ranks);
     const youngCount = group.filter((b) => b.ageMonths !== null && b.ageMonths <= YOUNG_MONTHS).length;
