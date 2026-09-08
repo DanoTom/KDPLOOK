@@ -30,7 +30,9 @@ jobs:
       # anterior que subir una rota.
       - run: npm test
 
-      - run: npx wrangler deploy
+      # `npm run deploy` es construir y subir: sin el build, wrangler subiría
+      # la versión anterior de la interfaz o ninguna.
+      - run: npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
