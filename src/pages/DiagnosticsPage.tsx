@@ -82,7 +82,7 @@ export function DiagnosticsPage() {
   return (
     <Layout
       title="Diagnóstico"
-      subtitle="Para distinguir «Amazon nos bloqueó» de «el marcado cambió y hay que ajustar el parser»."
+      subtitle={`Para distinguir «Amazon nos bloqueó» de «el marcado cambió y hay que ajustar el parser». Versión ${__BUILD_COMMIT__}, construida el ${__BUILD_DATE__}.`}
       actions={<Button size="sm" icon={<Icon.Refresh size={15} />} onClick={load}>Recargar</Button>}
     >
       <div className="stack-lg">

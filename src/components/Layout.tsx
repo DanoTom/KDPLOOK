@@ -89,6 +89,15 @@ export function Layout({
               {settings ? settings.marketplace.toUpperCase() : ""}
             </span>
           </div>
+          {/* Which build this is, always in view. Without it a fix that does
+              not work and a fix that was never deployed look identical. */}
+          <div
+            className="tiny faint"
+            style={{ marginTop: 8 }}
+            title={`Versión desplegada: ${__BUILD_COMMIT__}, construida el ${__BUILD_DATE__}. Si acabas de desplegar y esto no cambió, el despliegue no llegó.`}
+          >
+            v {__BUILD_COMMIT__} · {__BUILD_DATE__}
+          </div>
         </div>
       </aside>
 
