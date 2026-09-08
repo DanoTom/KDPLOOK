@@ -1,9 +1,8 @@
 # Despliega KDPLOOK a Cloudflare.
 #
-# Existe para que desplegar no dependa de tener la máquina de siempre delante:
-# se dispara solo al empujar cambios, y también a mano desde el botón
-# "Run workflow" en la pestaña Actions de GitHub, que funciona desde cualquier
-# navegador.
+# Existe para que desplegar no dependa de tener una máquina concreta delante:
+# se dispara al empujar cambios y también a mano, desde el botón "Run workflow"
+# de la pestaña Actions, que funciona desde cualquier navegador.
 name: Desplegar
 
 on:
@@ -15,24 +14,51 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Lo primero, porque es el fallo más probable y el que peor se explica
+      # solo: sin las llaves, wrangler termina con un "exit code 1" que no dice
+      # nada. Mejor parar aquí y decir exactamente qué falta.
+      - name: Comprobar que están las llaves de Cloudflare
+        run: |
+          faltan=""
+          [ -n "$CF_TOKEN" ] || faltan="$faltan CLOUDFLARE_API_TOKEN"
+          [ -n "$CF_ACCOUNT" ] || faltan="$faltan CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan estos secretos en el repositorio:$faltan"
+            echo ""
+            echo "Se ponen en GitHub: Settings > Secrets and variables > Actions"
+            echo "  > New repository secret."
+            echo ""
+            echo "El token se crea en dash.cloudflare.com > tu perfil > API Tokens"
+            echo "  > Create Token > plantilla 'Edit Cloudflare Workers'."
+            echo "El Account ID esta en la barra lateral de esa misma pantalla."
+            exit 1
+          fi
+          echo "Las dos llaves estan puestas."
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Descargar el código
+        uses: actions/checkout@v4
         # El sello de versión se lee de git, así que hace falta el historial.
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-node@v4
+      - name: Preparar Node
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
 
-      - run: npm ci
+      - name: Instalar dependencias
+        run: npm ci
 
-      # Si las pruebas fallan, no se despliega. Vale más quedarse en la versión
-      # anterior que subir una rota.
-      - run: npm test
+      # Si las pruebas fallan no se despliega: vale más quedarse en la versión
+      # anterior que subir una rota a la única persona que la usa.
+      - name: Pruebas
+        run: npm test
 
-      # `npm run deploy` es construir y subir: sin el build, wrangler subiría
-      # la versión anterior de la interfaz o ninguna.
-      - run: npm run deploy
+      - name: Construir y subir a Cloudflare
+        run: npm run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
