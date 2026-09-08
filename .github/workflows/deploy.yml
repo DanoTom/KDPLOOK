@@ -1,0 +1,36 @@
+# Despliega KDPLOOK a Cloudflare.
+#
+# Existe para que desplegar no dependa de tener la máquina de siempre delante:
+# se dispara solo al empujar cambios, y también a mano desde el botón
+# "Run workflow" en la pestaña Actions de GitHub, que funciona desde cualquier
+# navegador.
+name: Desplegar
+
+on:
+  push:
+    branches: [claude/amazon-kdp-scraper-webapp-j2mp4v]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # El sello de versión se lee de git, así que hace falta el historial.
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # Si las pruebas fallan, no se despliega. Vale más quedarse en la versión
+      # anterior que subir una rota.
+      - run: npm test
+
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
