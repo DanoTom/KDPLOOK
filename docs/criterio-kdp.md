@@ -671,6 +671,34 @@ dudosa y manda a cambiarla a mano.
 - **La tabla de BSR por posición** se quedó en 2 puntos de los 36 pedidos. Sigue
   siendo el dato que falta para dejar de extrapolar.
 
+## El histórico se construye solo (sept. 2026)
+
+El gráfico de BSR solo tenía datos de los libros que alguien había pensado en
+seguir, lo que significa que **nunca estaba el día que hacía falta**: cuando un
+título parece digno de vigilar, las semanas interesantes ya pasaron y empezar a
+seguirlo pone el contador a cero. Eso no es un histórico, es la promesa de uno.
+
+Amazon no publica rankings pasados. Las extensiones que sí los enseñan
+consultan bases de datos de pago —Keepa y las que se apoyan en ella— que llevan
+años llenándose. Eso no se replica gratis, y decirlo es parte del trato.
+
+Lo que sí se puede es el mismo truco a menor escala: **cada escaneo lee el
+ranking de veinte libros y lo tiraba**. Guardado, un libro ya tiene semanas
+detrás cuando alguien pregunta por él, sin haber decidido nada de antemano. Una
+muestra por libro y día: el ranking se mueve despacio y un nicho re-escaneado
+cinco veces en una tarde escribiría cinco filas idénticas.
+
+## Página vacía no es competencia cero (sept. 2026)
+
+En «Buscar ideas» las columnas de competidores y reseñas salían vacías sin
+explicación. La causa: el endpoint de puntuación devolvía todo a nulo cuando
+Amazon contestaba 200 con una página sin libros —el recorte de siempre— y la
+tabla pintaba un guión idéntico al de «aún no comprobado».
+
+Ahora eso es un error con nombre (`empty`), la fila lo dice, y hay botones para
+reintentar las que fallaron y para seguir con las que no entraron en el
+presupuesto de la pasada.
+
 ### Lo que sigue pendiente
 
 - **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,

@@ -267,8 +267,15 @@ export function BookPage() {
                   />
                 ) : (
                   <Empty icon="📈" title="Sin histórico aún">
-                    Sigue este libro y KDPLOOK tomará una muestra diaria de su BSR. En una semana
-                    verás si sube, baja o es un pico puntual.
+                    Cada escaneo de nicho guarda el ranking de los libros que lee, así que este
+                    aparecerá solo en cuanto salga en alguna búsqueda que analices. Para muestras
+                    diarias garantizadas, añádelo al seguimiento.
+                    <div className="small faint" style={{ marginTop: 8 }}>
+                      Amazon no publica rankings pasados: nadie puede enseñarte el histórico de un
+                      libro que empieza a mirar hoy sin haberlo ido guardando antes. Las
+                      extensiones que lo hacen consultan bases de datos de pago que llevan años
+                      llenándose.
+                    </div>
                   </Empty>
                 )}
               </div>

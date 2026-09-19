@@ -115,18 +115,30 @@ export function ExplorePage() {
     const open = found.filter((r) => !hidden.includes(r)).sort(byDemand);
     const shortlist = [...hidden, ...open].slice(0, TO_SCORE);
 
+    await check(shortlist.map((r) => r.keyword));
+  }
+
+  /**
+   * Score a set of phrases, merging into whatever is already known. Amazon
+   * refuses a share of requests on any pass and the same one usually answers
+   * moments later, so this is reusable rather than one-shot: a row that came
+   * back empty is a row to try again, not a verdict.
+   */
+  async function check(phrases: string[]) {
     setPhase("score");
-    const gathered: Record<string, KeywordScoreDto> = {};
-    for (let i = 0; i < shortlist.length; i += 8) {
-      if (cancelled.current) return;
-      const batch = shortlist.slice(i, i + 8);
-      setProgress({ label: `Mirando quién vende en ${batch.length} de esas frases…`, done: i, total: shortlist.length });
+    for (let i = 0; i < phrases.length; i += 8) {
+      if (cancelled.current) break;
+      const batch = phrases.slice(i, i + 8);
+      setProgress({ label: `Mirando quién vende en ${batch.length} de esas frases…`, done: i, total: phrases.length });
       try {
-        const response = await api.scoreKeywords({ keywords: batch.map((r) => r.keyword), marketplace, department });
-        for (const entry of response.scored) gathered[entry.keyword] = entry;
-        setScores({ ...gathered });
+        const response = await api.scoreKeywords({ keywords: batch, marketplace, department });
+        setScores((current) => {
+          const next = { ...current };
+          for (const entry of response.scored) next[entry.keyword] = entry;
+          return next;
+        });
       } catch {
-        setNote("Amazon rechazó parte de la comprobación. Lo que falte se puede reintentar.");
+        setNote("Amazon rechazó parte de la comprobación. Puedes reintentarla abajo.");
       }
     }
     setPhase("done");
@@ -154,6 +166,10 @@ export function ExplorePage() {
     });
   }, [records, scores]);
 
+  // Two different kinds of blank: never tried, and tried and refused. Both
+  // used to show a dash, which made a flaky answer look like a finished one.
+  const pending = rows.filter((r) => !r.score).map((r) => r.record.keyword);
+  const failed = rows.filter((r) => r.score?.error).map((r) => r.record.keyword);
   const hiddenRows = rows.filter((r) => r.record.source === "alphabet");
   const openRows = rows.filter((r) => r.record.source !== "alphabet");
   const busy = phase === "sweep" || phase === "score";
@@ -222,6 +238,21 @@ export function ExplorePage() {
         />
       ) : null}
 
+      {!busy && (pending.length || failed.length) ? (
+        <div className="row-tight" style={{ padding: "0 4px" }}>
+          {failed.length ? (
+            <Button icon={<Icon.Refresh size={15} />} onClick={() => void check(failed)}>
+              Reintentar {failed.length === 1 ? "la que falló" : `las ${failed.length} que fallaron`}
+            </Button>
+          ) : null}
+          {pending.length ? (
+            <Button onClick={() => void check(pending.slice(0, 8))}>
+              Comprobar {Math.min(8, pending.length)} más de las {pending.length} que faltan
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {rows.length ? (
         <div className="small faint" style={{ padding: "0 4px" }}>
           «Se busca» es la posición en el autocompletado de Amazon, no volumen de búsquedas: dice
@@ -272,8 +303,12 @@ function PhraseCard({
                     <span title={verdict.reason}>
                       <Badge tone={verdict.tone}>{verdict.label} · {verdict.score}</Badge>
                     </span>
+                  ) : score?.error === "empty" ? (
+                    <span title="Amazon devolvió la página sin libros. Suele ser el recorte que sirve a un servidor, no un nicho vacío.">
+                      <Badge tone="warn">página vacía</Badge>
+                    </span>
                   ) : score?.error ? (
-                    <Badge tone="neutral">bloqueada</Badge>
+                    <Badge tone="bad">bloqueada</Badge>
                   ) : (
                     <span className="small faint">sin comprobar</span>
                   )}

@@ -10,6 +10,7 @@ import { authEnabled, checkPassword, clearSessionCookie, createSessionCookie, is
 import {
   DEFAULT_SETTINGS, addWatch, cacheGet, cachePurge, cacheSet, dbReady, deleteKeywordRun, deleteNiche,
   getHistory, getKeywordRun, getNiche, listKeywordRuns, listNiches, listWatch, loadSettings, logFetch,
+  logScanSamples,
   recentFetches, recordRankPoint, removeWatch, saveKeywordRun, saveNiche, saveSettings, trimFetchLog,
   updateNiche,
 } from "./db";
@@ -367,9 +368,18 @@ app.post("/api/scan/enrich", async (c) => {
     return { asin, detail, cached: false, blocked: false };
   });
 
+  // Every detail page read here carries today's rank, and it used to be
+  // discarded the moment the report rendered. Kept, the history chart stops
+  // being a promise that only pays off for books you already knew to follow.
+  const read = details.map((d) => d.detail).filter((d): d is ProductDetail => Boolean(d));
+  const logged = await logScanSamples(c.env, marketplace.id, read.map((d) => ({
+    asin: d.asin, bsr: d.bsr, price: d.price, rating: d.rating, reviews: d.reviews,
+  })));
+
   return c.json({
-    details: details.filter((d) => d.detail).map((d) => d.detail),
+    details: read,
     failed: details.filter((d) => !d.detail).map((d) => d.asin),
+    logged,
     blocked: details.some((d) => d.blocked),
     fromCache: details.filter((d) => d.cached).length,
   });
@@ -424,6 +434,13 @@ app.post("/api/keywords/score", async (c) => {
 
     const parsed = parseSearchPage(outcome.body, marketplace, 0, 24);
     const organic = parsed.items.filter((i) => !i.sponsored).slice(0, 16);
+    // A 200 that carries no books is not a score of zero, it is a read that
+    // failed — Amazon serves a datacenter a stub often enough that treating it
+    // as data would report an empty shelf for a busy niche. Said out loud so
+    // the row can be retried instead of silently showing a dash.
+    if (!organic.length && parsed.totalResults === null) {
+      return { keyword, error: "empty" };
+    }
     // Only the listings whose review count was actually read. Counting an
     // unknown as zero turns a page nothing could be parsed from into "100% de
     // rivales flojos" — the strongest go-ahead the app can give, produced by

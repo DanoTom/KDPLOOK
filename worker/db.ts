@@ -385,3 +385,49 @@ export async function dbReady(env: Env): Promise<boolean> {
     return false;
   }
 }
+
+
+/**
+ * Log what a scan already read, so history builds itself.
+ *
+ * The rank chart only ever had data for books the publisher had thought to
+ * follow, which means it was never there on the day it was wanted: by the time
+ * a title looks worth watching, the interesting weeks have already passed and
+ * tracking it starts the clock at zero. That is not a history, it is a promise
+ * of one.
+ *
+ * Amazon publishes no past ranks, and the services that do — Keepa and the
+ * extensions built on it — sell access to databases they have been filling for
+ * years. What can be had for nothing is the same trick at a smaller scale:
+ * every scan reads the rank of twenty books and throws it away. Kept instead,
+ * a book already has weeks behind it by the time anyone asks.
+ *
+ * One sample per book per day. A rank moves slowly enough that more would be
+ * noise, and a niche re-scanned five times in an afternoon would otherwise
+ * write five identical rows.
+ */
+export async function logScanSamples(
+  env: Env,
+  marketplace: string,
+  books: Array<{ asin: string; bsr: number | null; price: number | null; rating: number | null; reviews: number | null }>,
+): Promise<number> {
+  const worth = books.filter((b) => b.bsr !== null && /^[A-Z0-9]{10}$/i.test(b.asin));
+  if (!worth.length) return 0;
+
+  const dayAgo = Date.now() - 20 * 60 * 60 * 1000;
+  const seen = await env.DB.prepare(
+    `SELECT DISTINCT asin FROM rank_history WHERE marketplace = ? AND captured_at > ? ` +
+    `AND asin IN (${worth.map(() => "?").join(",")})`,
+  ).bind(marketplace, dayAgo, ...worth.map((b) => b.asin)).all<{ asin: string }>();
+  const already = new Set((seen.results ?? []).map((r) => r.asin));
+
+  const fresh = worth.filter((b) => !already.has(b.asin));
+  if (!fresh.length) return 0;
+
+  const now = Date.now();
+  await env.DB.batch(fresh.map((b) => env.DB.prepare(
+    "INSERT INTO rank_history (asin, marketplace, captured_at, bsr, price, rating, reviews, sales_est, revenue_est, category_ranks) " +
+    "VALUES (?,?,?,?,?,?,?,NULL,NULL,'[]')",
+  ).bind(b.asin, marketplace, now, b.bsr, b.price, b.rating, b.reviews)));
+  return fresh.length;
+}
