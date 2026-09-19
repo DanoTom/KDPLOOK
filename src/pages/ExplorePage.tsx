@@ -5,6 +5,7 @@ import { ApiError, api, type KeywordScoreDto } from "../api";
 import { Icon } from "../components/icons";
 import { Layout } from "../components/Layout";
 import { Alert, Badge, Button, Card, CardHead, Empty, Field, Progress, SegmentedControl } from "../components/ui";
+import { searchGuesses } from "../../shared/analytics/titles";
 import { fmtInt, fmtMoney } from "../lib/format";
 import { useRoute } from "../router";
 import { useApp } from "../state";
@@ -125,6 +126,10 @@ export function ExplorePage() {
    * back empty is a row to try again, not a verdict.
    */
   async function check(phrases: string[]) {
+    // Clearing the flag matters: after a "Parar" it stays raised, and the retry
+    // button would then break out of its first iteration and do nothing at all,
+    // silently, which looks exactly like the button being broken.
+    cancelled.current = false;
     setPhase("score");
     for (let i = 0; i < phrases.length; i += 8) {
       if (cancelled.current) break;
@@ -170,6 +175,16 @@ export function ExplorePage() {
   // used to show a dash, which made a flaky answer look like a finished one.
   const pending = rows.filter((r) => !r.score).map((r) => r.record.keyword);
   const failed = rows.filter((r) => r.score?.error).map((r) => r.record.keyword);
+  // A sweep asks Amazon to complete a prefix, so it needs a root to grow from.
+  // Handed a phrase that is already a long tail — "journal salud mental" — the
+  // autocomplete has almost nothing left to add and the pass comes back thin,
+  // which reads as "no hay nada aquí" when it means "preguntaste por el final".
+  const roots = useMemo(() => {
+    const words = seed.trim().split(/\s+/).filter((w) => w.length > 2);
+    if (words.length < 3) return [];
+    return searchGuesses(seed, null, 4).filter((p) => p !== seed.trim().toLowerCase() && p.split(" ").length < words.length);
+  }, [seed]);
+
   const hiddenRows = rows.filter((r) => r.record.source === "alphabet");
   const openRows = rows.filter((r) => r.record.source !== "alphabet");
   const busy = phase === "sweep" || phase === "score";
@@ -215,6 +230,19 @@ export function ExplorePage() {
         </div>
       </Card>
 
+      {roots.length && !busy ? (
+        <Alert tone="info">
+          <strong>«{seed.trim()}» ya es una frase larga.</strong> El barrido pide a Amazon que
+          complete lo que escribes, así que funciona mejor desde una raíz corta: lo específico
+          aparece solo, y con la competencia que tiene detrás. Prueba desde aquí:
+          <div className="row-tight" style={{ marginTop: 8 }}>
+            {roots.map((root) => (
+              <Button key={root} size="sm" onClick={() => { setSeed(root); }}>{root}</Button>
+            ))}
+          </div>
+        </Alert>
+      ) : null}
+
       {phase === "idle" && !records.length ? (
         <Empty icon="🔎" title="Empieza por lo genérico y deja que Amazon te lleve">
           Amazon solo enseña diez sugerencias por vez, así que las frases interesantes se esconden
@@ -258,10 +286,26 @@ export function ExplorePage() {
           «Se busca» es la posición en el autocompletado de Amazon, no volumen de búsquedas: dice
           que la frase se teclea, no cuánto. Las filas «sin comprobar» son las que quedaron fuera
           del presupuesto de esta pasada.
+          <br />
+          {/* The count that confused a real session: the app filters to books,
+              the browser does not, and the two numbers are wildly different for
+              anything a shop also sells as an object. */}
+          «{shelf(department)}» cuenta <strong>solo {shelfLong(department)}</strong>. Si buscas lo
+          mismo en Amazon sin filtrar por departamento verás muchos más, porque ahí entran los
+          cuadernos, la papelería y todo lo que no es un libro: para decidir si publicas, el
+          número que importa es este.
         </div>
       ) : null}
     </Layout>
   );
+}
+
+/** What the competitor count is counting, in the column header and in prose. */
+function shelf(d: Department): string {
+  return d === "kindle" ? "Kindle" : d === "all" ? "Resultados" : "Libros en papel";
+}
+function shelfLong(d: Department): string {
+  return d === "kindle" ? "libros de la tienda Kindle" : d === "all" ? "resultados de la tienda entera" : "libros en papel";
 }
 
 function byDemand(a: KeywordRecord, b: KeywordRecord): number {
@@ -283,7 +327,7 @@ function PhraseCard({
             <tr>
               <th>Frase</th>
               <th className="num">Se busca</th>
-              <th className="num">Competidores</th>
+              <th className="num">{shelf(department)}</th>
               <th className="num">Reseñas</th>
               <th className="num">Precio</th>
               <th>Veredicto</th>
