@@ -15,9 +15,8 @@ interface NavEntry {
 
 const NAV: NavEntry[] = [
   { to: "/", label: "Panel", icon: <Icon.Compass className="icon" />, group: "Investigar" },
-  { to: "/ideas", label: "Buscar ideas", icon: <Icon.Compass className="icon" />, group: "Investigar" },
   { to: "/nicho", label: "Explorar nicho", icon: <Icon.Search className="icon" />, group: "Investigar" },
-  { to: "/keywords", label: "Laboratorio de keywords", icon: <Icon.Tag className="icon" />, group: "Investigar" },
+  { to: "/keywords", label: "Buscar ideas", icon: <Icon.Compass className="icon" />, group: "Investigar" },
   { to: "/categorias", label: "Categorías", icon: <Icon.Trend className="icon" />, group: "Investigar" },
   { to: "/colocacion", label: "Dónde colocar tu libro", icon: <Icon.Star className="icon" />, group: "Investigar" },
   { to: "/libro", label: "Inspector de libro", icon: <Icon.Book className="icon" />, group: "Investigar" },

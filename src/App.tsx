@@ -5,9 +5,8 @@ import { RouterProvider, useRoute } from "./router";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { NichePage } from "./pages/NichePage";
-import { IdeasPage } from "./pages/IdeasPage";
+import { ExplorePage } from "./pages/ExplorePage";
 import { PlacementPage } from "./pages/PlacementPage";
-import { KeywordsPage } from "./pages/KeywordsPage";
 import { CategoryPage } from "./pages/CategoryPage";
 import { BookPage } from "./pages/BookPage";
 import { WatchlistPage } from "./pages/WatchlistPage";
@@ -57,9 +56,9 @@ function Routes() {
     return <div className="login-wrap"><span className="spinner" style={{ width: 26, height: 26 }} /></div>;
   }
 
-  if (path.startsWith("/ideas")) return <IdeasPage />;
   if (path.startsWith("/nicho")) return <NichePage />;
-  if (path.startsWith("/keywords")) return <KeywordsPage />;
+  // Both old routes land on the one screen that replaced them.
+  if (path.startsWith("/keywords") || path.startsWith("/ideas")) return <ExplorePage />;
   if (path.startsWith("/colocacion")) return <PlacementPage />;
   if (path.startsWith("/categorias")) return <CategoryPage />;
   if (path.startsWith("/libro")) return <BookPage />;
