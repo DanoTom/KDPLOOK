@@ -23,7 +23,7 @@ import { demandBsrFor, reviewExpertise } from "../shared/analytics/checklist";
 import { RESULTS_GREEN, RESULTS_LIMIT } from "../shared/analytics/checklist";
 import { isPublishableBook } from "../shared/analytics/book";
 import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content";
-import { analyseTitles } from "../shared/analytics/titles";
+import { analyseTitles, searchGuesses } from "../shared/analytics/titles";
 import { reviewsPerMonth } from "../shared/analytics/book";
 import { isMerchPhrase } from "../worker/amazon/suggest";
 import {
@@ -1489,6 +1489,28 @@ console.log("\ntarifas de impresion deducidas de libros propios");
   check("un coste que baja con las paginas se rechaza",
     solvePrintingRates([{ pages: 200, cost: 5 }, { pages: 400, cost: 3 }], 108).perPage, null);
   check("y sin muestras no inventa nada", solvePrintingRates([], 108).flatFee, null);
+}
+
+console.log("\nbusquedas que implica un titulo");
+{
+  // La caja del inspector ya no arranca vacía: seis conjeturas inventadas que
+  // vuelven sin resultados se leen como «mi libro es invisible», y solo quieren
+  // decir «esas no son las búsquedas».
+  const g = searchGuesses(
+    "Sopa de Letras de Crimen (Best Seller | Pasatiempos): 100 casos para adultos");
+  check("la frase entera del título va primero", g[0], "sopa de letras de crimen");
+  truthy("y también la versión amplia, que es otra búsqueda",
+    g.includes("sopa de letras"));
+  check("y no propone la etiqueta de la editorial",
+    g.some((p) => p.includes("best seller")), false);
+  truthy("y también mira el subtítulo", g.some((p) => p.includes("adultos")));
+  check("nada empieza por una palabra vacía",
+    g.some((p) => /^(de|la|el|para|con|por)\b/.test(p)), false);
+  check("ni acaba en una", g.some((p) => /\b(de|la|el|para|con|por)$/.test(p)), false);
+  truthy("como mucho cinco", g.length <= 5);
+
+  // Un título sin nada que extraer no inventa.
+  check("un título de una palabra no da conjeturas", searchGuesses("Cuadernillo").length, 0);
 }
 
 console.log("\nmerch y ritmo de resenas");

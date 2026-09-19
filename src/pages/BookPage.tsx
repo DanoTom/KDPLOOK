@@ -3,6 +3,7 @@ import type { BookFormat, MarketplaceId, RankPoint } from "../../shared/types";
 import { calibrationFor, salesPerMonth as salesFromBsr } from "../../shared/analytics/bsr";
 import { assessEstimate, estimateRange, type EstimateReliability } from "../../shared/analytics/reliability";
 import { monthsSince } from "../../shared/analytics/score";
+import { searchGuesses } from "../../shared/analytics/titles";
 import { api, type ProductDetailDto } from "../api";
 import { LineChart } from "../components/charts";
 import { Icon } from "../components/icons";
@@ -362,8 +363,8 @@ function EstimateTrust({
  * position it holds is reported, ads excluded, since a paid slot is bought
  * rather than earned.
  */
-function RankCheck({ asin, title, marketplace, format }: {
-  asin: string; title: string; marketplace: MarketplaceId; format: BookFormat;
+function RankCheck({ asin, title, subtitle, marketplace, format }: {
+  asin: string; title: string; subtitle?: string | null; marketplace: MarketplaceId; format: BookFormat;
 }) {
   // Searching the printed-books department for a Kindle edition finds nothing,
   // and "nothing" would be reported as an indexing problem the book does not have.
@@ -374,11 +375,17 @@ function RankCheck({ asin, title, marketplace, format }: {
   const [retrying, setRetrying] = useState(false);
   const [results, setResults] = useState<Awaited<ReturnType<typeof api.rankCheck>> | null>(null);
 
-  // The title is where the publisher's own keyword bet is written down.
+  // The title is where the publisher's own keyword bet is written down, so the
+  // box starts filled with the searches it implies instead of empty. Six blank
+  // lines produced six invented guesses, and when those came back empty the
+  // panel read as "your book is invisible" when it only meant "not those".
   const suggestion = useMemo(() => {
     const clean = title.split(/[:|–—]/)[0].trim().toLowerCase();
     return clean.split(/\s+/).slice(0, 6).join(" ");
   }, [title]);
+  const guesses = useMemo(() => searchGuesses(title, subtitle ?? null), [title, subtitle]);
+  const [touched, setTouched] = useState(false);
+  const value = touched || input ? input : guesses.join("\n");
 
   /**
    * @param only when given, re-checks just these searches and merges the answers
@@ -387,7 +394,7 @@ function RankCheck({ asin, title, marketplace, format }: {
    *             already does rather than making the operator start over.
    */
   async function run(only?: string[]) {
-    const keywords = only ?? input.split("\n").map((k) => k.trim()).filter(Boolean).slice(0, 6);
+    const keywords = only ?? value.split("\n").map((k) => k.trim()).filter(Boolean).slice(0, 6);
     if (!keywords.length) return;
     setBusy(true);
     try {
@@ -460,12 +467,14 @@ function RankCheck({ asin, title, marketplace, format }: {
       <div className="card-pad stack">
         <Field
           label="Búsquedas a comprobar (una por línea, hasta 6)"
-          help="Escribe lo que teclearía tu lector, no cómo se titula el libro."
+          help={guesses.length
+            ? "Rellenadas a partir del título. Bórralas y escribe lo que teclearía tu lector: casi nunca es cómo se titula el libro."
+            : "Escribe lo que teclearía tu lector, no cómo se titula el libro."}
         >
           <textarea
-            className="input" rows={4} value={input}
+            className="input" rows={5} value={value}
             placeholder={"escucha activa\ncomo escuchar mejor\nhabilidades de comunicacion"}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(event) => { setTouched(true); setInput(event.target.value); }}
           />
         </Field>
 

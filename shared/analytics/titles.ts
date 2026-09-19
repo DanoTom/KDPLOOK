@@ -175,3 +175,55 @@ export function analyseTitles(items: BookRecord[], sellingBsr: number): TitleAna
   terms.sort((a, b) => (b.lift - a.lift) || (b.inSelling - a.inSelling) || (b.words - a.words));
   return { ...empty, terms: terms.slice(0, 24) };
 }
+
+
+/**
+ * What a reader might type to find this book.
+ *
+ * The visibility check asks which searches a title shows up in, and it used to
+ * ask the publisher to invent them. That is the same blank box that makes every
+ * other screen useless on the day nothing comes to mind — and worse here,
+ * because six bad guesses come back empty and read as "my book is invisible"
+ * when they only mean "those are not the searches".
+ *
+ * The title already contains the bet: it is where the publisher wrote down what
+ * they think the book is about. So the guesses are drawn from it, as phrases
+ * somebody would actually type rather than as vocabulary — adjacent words,
+ * trimmed at the edges, and with the marketing furniture in brackets removed.
+ */
+const IMPRINT_TAG = /\([^)]*\)|\[[^\]]*\]/g;
+
+export function searchGuesses(title: string, subtitle?: string | null, limit = 5): string[] {
+  // The part before the colon is the title; what follows is usually the sales
+  // pitch ("100 pasatiempos para adultos"), which is still worth mining but
+  // second, because nobody searches for a subtitle first.
+  const clean = (text: string) => text.replace(IMPRINT_TAG, " ");
+  const head = clean(title).split(/[:|–—]/)[0];
+  const rest = [clean(title).split(/[:|–—]/).slice(1).join(" "), clean(subtitle ?? "")].join(" ");
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const harvest = (text: string) => {
+    const words = splitTitleWords(text);
+    // Up to five, because Spanish spends slots on little words: "sopa de
+    // letras de crimen" is five and the phrase somebody types. Longest first,
+    // and the shorter versions stay — unlike the niche miner, here breadth is
+    // the point. Whether the book ranks for "sopa de letras de crimen" but
+    // vanishes on "sopa de letras" is exactly the finding this panel exists for.
+    for (let size = 5; size >= 2; size--) {
+      for (let i = 0; i + size <= words.length; i++) {
+        const slice = words.slice(i, i + size);
+        if (STOPWORDS.has(slice[0]) || /^\d+$/.test(slice[0])) continue;
+        if (STOPWORDS.has(slice[slice.length - 1])) continue;
+        const phrase = slice.join(" ");
+        const meaning = slice.filter((w) => !STOPWORDS.has(w) && !/^\d+$/.test(w)).length;
+        if (meaning < 2 || seen.has(phrase)) continue;
+        seen.add(phrase);
+        out.push(phrase);
+      }
+    }
+  };
+  harvest(head);
+  if (out.length < limit) harvest(rest);
+  return out.slice(0, limit);
+}
