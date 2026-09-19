@@ -25,7 +25,7 @@ import { isPublishableBook } from "../shared/analytics/book";
 import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content";
 import { analyseTitles, searchGuesses } from "../shared/analytics/titles";
 import { reviewsPerMonth } from "../shared/analytics/book";
-import { isMerchPhrase } from "../worker/amazon/suggest";
+import { isAboutSeed, isMerchPhrase } from "../worker/amazon/suggest";
 import {
   HIDDEN_CATEGORY_SLOTS, categoryRequestEmail, readPlacements,
 } from "../shared/analytics/placement";
@@ -1489,6 +1489,21 @@ console.log("\ntarifas de impresion deducidas de libros propios");
   check("un coste que baja con las paginas se rechaza",
     solvePrintingRates([{ pages: 200, cost: 5 }, { pages: 400, cost: 3 }], 108).perPage, null);
   check("y sin muestras no inventa nada", solvePrintingRates([], 108).flatFee, null);
+}
+
+console.log("\nsugerencias que se van del tema");
+{
+  const con = new Set(["para", "de", "con"]);
+  const about = (p: string, seed = "sopa de letras") => isAboutSeed(p, seed, con);
+
+  truthy("conserva la que completa la semilla", about("sopa de letras crimen"));
+  truthy("y aguanta el plural", about("sopas de letras para adultos"));
+  truthy("y los acentos", isAboutSeed("agenda para psicólogos", "agenda psicologo", con));
+  check("descarta la que se fue del tema", about("sopa juliana receta"), false);
+  check("y la que solo comparte una palabra", about("letras de canciones"), false);
+  // Sin palabras con contenido no hay nada que exigir: mejor no filtrar que
+  // filtrarlo todo.
+  truthy("una semilla vacía no descarta nada", isAboutSeed("lo que sea", "de", con));
 }
 
 console.log("\nbusquedas que implica un titulo");

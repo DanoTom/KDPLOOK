@@ -332,6 +332,41 @@ export function isMerchPhrase(phrase: string): boolean {
     || (words.length > 1 && MERCH_WORDS.has(words[words.length - 2]));
 }
 
+/**
+ * Groups whose probes are the seed plus something, so every answer should
+ * still be about the seed.
+ *
+ * `related`, `prefixes` and `questions` are deliberately excluded: those probe
+ * with rotations, plurals and question words precisely to find phrases that do
+ * *not* contain the seed as typed, and filtering them against it would throw
+ * away the results they exist to produce.
+ */
+const SEED_ROOTED: ReadonlySet<ProbeGroup> = new Set<ProbeGroup>([
+  "base", "alphabetA", "alphabetB", "digits", "suffixes",
+]);
+
+const deaccent = (text: string) =>
+  text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+/**
+ * Whether a completion is still about what was asked.
+ *
+ * Amazon's suggestion endpoint mostly completes the prefix it is given, but not
+ * always: ask it about a phrase it does not recognise and it will answer with
+ * whatever it does, and those completions arrive looking like findings. Matched
+ * on a four-letter stem so a plural or a gender ending does not lose a good
+ * one — "sopa" has to accept "sopas", and "psicologo" "psicologos".
+ */
+export function isAboutSeed(phrase: string, seed: string, connectors: Set<string>): boolean {
+  const words = deaccent(seed).split(/\s+/).filter((w) => w.length > 2 && !connectors.has(w));
+  if (!words.length) return true;
+  const target = deaccent(phrase);
+  return words.every((word) => {
+    const stem = word.slice(0, Math.min(4, word.length));
+    return target.includes(stem);
+  });
+}
+
 export async function expandKeywords(
   env: Env,
   settings: AppSettings,
@@ -342,6 +377,7 @@ export async function expandKeywords(
 ): Promise<ExpandResult> {
   const probes = buildProbes(seed, group, marketplace);
   if (!probes.length) return { keywords: [], probes: 0, answered: 0, reachable: 0 };
+  const joiners = new Set(modifiersFor(marketplace).connectors);
 
   const source: KeywordRecord["source"] =
     group === "base" ? "seed"
@@ -364,6 +400,7 @@ export async function expandKeywords(
     if (suggestions.length) answered += 1;
     suggestions.forEach((phrase, rank) => {
       if (isMerchPhrase(phrase)) return;
+      if (SEED_ROOTED.has(group) && !isAboutSeed(phrase, seed, joiners)) return;
       const existing = map.get(phrase);
       if (existing) {
         existing.hits += 1;
