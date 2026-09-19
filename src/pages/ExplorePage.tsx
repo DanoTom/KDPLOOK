@@ -221,6 +221,14 @@ export function ExplorePage() {
           rows={openRows} department={department} navigate={navigate} currency={currencySymbol}
         />
       ) : null}
+
+      {rows.length ? (
+        <div className="small faint" style={{ padding: "0 4px" }}>
+          «Se busca» es la posición en el autocompletado de Amazon, no volumen de búsquedas: dice
+          que la frase se teclea, no cuánto. Las filas «sin comprobar» son las que quedaron fuera
+          del presupuesto de esta pasada.
+        </div>
+      ) : null}
     </Layout>
   );
 }
@@ -282,11 +290,6 @@ function PhraseCard({
             ))}
           </tbody>
         </table>
-      </div>
-      <div className="card-pad small faint">
-        «Se busca» es la posición en el autocompletado de Amazon, no volumen de búsquedas: dice que
-        la frase se teclea, no cuánto. Las filas «sin comprobar» son las que quedaron fuera del
-        presupuesto de esta pasada.
       </div>
     </Card>
   );

@@ -125,7 +125,14 @@ export function BookTable({
                         ) : null}
                       </div>
                       <div className="book-meta truncate">
-                        {book.author || "—"} · {book.formatLabel}
+                        {/* The author is the way into their whole catalogue,
+                            which answers what a single row cannot: whether
+                            this person is still publishing and selling. */}
+                        {book.author ? (
+                          <Link to={`/autor?nombre=${encodeURIComponent(book.author)}`} style={{ color: "inherit" }}>
+                            {book.author}
+                          </Link>
+                        ) : "—"} · {book.formatLabel}
                         {book.selfPublished === true ? " · indie" : book.selfPublished === false ? " · editorial" : ""}
                         {book.kindleUnlimited ? " · KU" : ""}
                       </div>

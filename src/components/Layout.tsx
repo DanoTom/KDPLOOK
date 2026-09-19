@@ -19,6 +19,7 @@ const NAV: NavEntry[] = [
   { to: "/keywords", label: "Buscar ideas", icon: <Icon.Compass className="icon" />, group: "Investigar" },
   { to: "/categorias", label: "Categorías", icon: <Icon.Trend className="icon" />, group: "Investigar" },
   { to: "/colocacion", label: "Dónde colocar tu libro", icon: <Icon.Star className="icon" />, group: "Investigar" },
+  { to: "/autor", label: "Explorar un autor", icon: <Icon.Eye className="icon" />, group: "Investigar" },
   { to: "/libro", label: "Inspector de libro", icon: <Icon.Book className="icon" />, group: "Investigar" },
   { to: "/guardados", label: "Nichos guardados", icon: <Icon.Bookmark className="icon" />, group: "Biblioteca" },
   { to: "/seguimiento", label: "Seguimiento", icon: <Icon.Eye className="icon" />, group: "Biblioteca" },
