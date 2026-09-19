@@ -355,6 +355,29 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     }
   }
 
+  // Which price the best-ranked books in *this* niche are charging.
+  //
+  // The entry criteria carry a floor per content type, which answers "does this
+  // niche pay enough to be worth entering". This answers a different question:
+  // of the prices actually being charged here, which band is outselling the
+  // others. Sometimes there is no pattern at all, and saying so is the point —
+  // an invented optimal price is worse than none.
+  const priced = settled.filter((b) => b.price !== null && b.bsr !== null);
+  const band = bestPriceBand(priced);
+  if (band) {
+    summary.signals.push({
+      id: "precio-que-vende",
+      label: "Precio que mejor rankea",
+      value: band.spread
+        ? `${band.low.toFixed(2)}–${band.high.toFixed(2)}`
+        : "sin patrón",
+      tone: band.spread ? "good" : "neutral",
+      hint: band.spread
+        ? `Entre los ${priced.length} libros asentados con precio y ranking leídos, los que cobran entre ${band.low.toFixed(2)} y ${band.high.toFixed(2)} tienen una mediana de BSR de ${fmtRank(band.medianBsr)}, frente a ${fmtRank(band.worstBsr)} de la banda que peor va. Es una señal débil con esta muestra, pero es de aquí y no de una regla general.`
+        : `Los precios de este nicho no separan a los que venden de los que no: entre las bandas alta y baja la diferencia de ranking es pequeña. Aquí el precio no es la palanca.`,
+    });
+  }
+
   // How fast the recent arrivals are collecting reviews. This is the number
   // that answers "how long until I look as established as these people" — the
   // leader's total only says how long it has been here.
@@ -469,6 +492,45 @@ const VERDICT_ORDER: Array<Verdict["label"]> = ["Excelente", "Bueno", "Ajustado"
 const VERDICT_TONE: Record<Verdict["label"], Verdict["tone"]> = {
   "Excelente": "great", "Bueno": "good", "Ajustado": "mixed", "Difícil": "bad", "Sin datos": "unknown",
 };
+
+function fmtRank(value: number): string {
+  return Math.round(value).toLocaleString("es");
+}
+
+/**
+ * Split the niche's prices into three bands and see which ranks best.
+ *
+ * Terciles rather than fixed brackets, because what counts as cheap depends on
+ * the shelf: 8 EUR is dear for a notebook and a giveaway for a 200-page guide.
+ * Needs a real sample — under nine books the bands are three titles each and
+ * any ordering between them is noise.
+ */
+function bestPriceBand(books: BookRecord[]): {
+  low: number; high: number; medianBsr: number; worstBsr: number; spread: boolean;
+} | null {
+  if (books.length < 9) return null;
+  const sorted = [...books].sort((a, b) => (a.price as number) - (b.price as number));
+  const size = Math.floor(sorted.length / 3);
+  const bands = [sorted.slice(0, size), sorted.slice(size, size * 2), sorted.slice(size * 2)];
+
+  const read = bands.map((group) => ({
+    low: group[0].price as number,
+    high: group[group.length - 1].price as number,
+    medianBsr: median(group.map((b) => b.bsr as number)) ?? Infinity,
+  }));
+  const ranked = [...read].sort((a, b) => a.medianBsr - b.medianBsr);
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  if (!Number.isFinite(best.medianBsr) || !Number.isFinite(worst.medianBsr)) return null;
+
+  // A band only "wins" if it is clearly ahead. Ranking bands that sit within a
+  // third of each other is reading a pattern into three coin tosses.
+  return {
+    low: best.low, high: best.high,
+    medianBsr: best.medianBsr, worstBsr: worst.medianBsr,
+    spread: best.medianBsr <= worst.medianBsr * 0.6,
+  };
+}
 
 /** Above this share of non-books, the query itself is not about books. */
 const NON_BOOK_INTENT = 0.2;

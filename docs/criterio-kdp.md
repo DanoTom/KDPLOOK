@@ -699,6 +699,50 @@ Ahora eso es un error con nombre (`empty`), la fila lo dice, y hay botones para
 reintentar las que fallaron y para seguir con las que no entraron en el
 presupuesto de la pasada.
 
+## Lo que aportó la IA de Amazon (sept. 2026)
+
+Una docena de ideas generales sobre cómo construir una herramienta tipo
+Publisher Rocket. La mayoría ya estaba hecha —minar los títulos de los más
+vendidos, medir la competencia por densidad de reseñas, curva BSR→ventas por
+mercado, categorías secundarias como vector de ranking—, otras no son
+implementables sin datos que Amazon no publica. Dos sí valieron:
+
+### La app se contradecía a sí misma con las frases largas
+
+`demandProxy` penalizaba la longitud: ×0,93 a partir de cinco palabras y ×0,82
+a partir de siete, «porque las colas largas son flojas». Pero **el resto de la
+app le dice al editor que el hueco está en lo específico** — es la premisa
+entera del barrido y del propio manual del operador, que manda cazar cola
+larga. Y hay un argumento más fuerte: que una frase larga aparezca siquiera en
+el autocompletado *es* la prueba de que se teclea. Amazon no sugiere lo que
+nadie busca.
+
+Además se contaba mal. El castellano gasta huecos en preposiciones, así que
+«sopa de letras para mujeres mayores» contaba como seis palabras y se penalizaba
+cuando son cuatro ideas. Ahora se cuentan solo las palabras con significado y
+queda un descuento suave a partir de siete, donde una sugerencia deja de ser una
+frase y empieza a ser una oración.
+
+### El precio que rankea en este nicho, no el suelo general
+
+Las puertas de entrada traen un suelo por tipo de contenido, que contesta «¿este
+nicho paga lo suficiente?». Esto contesta otra cosa: de los precios que se están
+cobrando **aquí**, cuál va por delante. Se parte el top en tres bandas por
+terciles —lo caro depende del estante— y se compara la mediana de BSR de cada
+una.
+
+Con menos de nueve libros no opina, y si las bandas quedan a menos de un tercio
+de distancia entre sí dice **«sin patrón»**: un precio óptimo inventado es peor
+que ninguno.
+
+### Lo que no se tocó, y por qué
+
+Rufus afirma que BSR 50.000 en .com son 2-4 ventas diarias; nuestra curva dice
+5. Mismo orden de magnitud, nosotros más optimistas. No se recalibra el cimiento
+de la app con una cifra sin fuente de un asistente de compra — es exactamente el
+error contra el que va todo lo demás. Queda anotado como un indicio más a favor
+de calibrar con ventas reales de KDP.
+
 ### Lo que sigue pendiente
 
 - **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,

@@ -420,7 +420,7 @@ export async function expandKeywords(
 
   const keywords = Array.from(map.values()).map((record) => ({
     ...record,
-    demandProxy: demandProxy(record, probes.length),
+    demandProxy: demandProxy(record, probes.length, joiners),
   }));
 
   keywords.sort((a, b) => b.demandProxy - a.demandProxy);
@@ -431,12 +431,29 @@ export async function expandKeywords(
  * 0-100 proxy for how much traffic a phrase likely carries.
  *  - appearing under many different probes = broadly relevant
  *  - appearing near the top of a list = Amazon ranks it highly
- *  - very long tails get a small penalty, they are usually thin
+ *
+ * Length used to be penalised here on the grounds that long tails are thin,
+ * and that was the app arguing with itself. Every other screen tells the
+ * publisher that the room is in the specific phrase — it is the whole premise
+ * of the sweep, and of the operator's own field guide, which says to hunt
+ * long-tail specifics. Worse, a long phrase turning up in the autocomplete at
+ * all is itself the evidence that people type it: Amazon does not suggest
+ * what nobody searches. Discounting it for being long punished exactly the
+ * finding the screen exists to produce.
+ *
+ * Measured in words that carry meaning, too. Spanish spends slots on little
+ * ones, so "sopa de letras para mujeres mayores" was counted as six words and
+ * docked, when it is four ideas — no longer a tail than its English
+ * equivalent. What remains is a mild discount past six content words, where a
+ * completion stops being a phrase somebody types and starts being a sentence.
  */
-function demandProxy(record: KeywordRecord, probeCount: number): number {
+function demandProxy(record: KeywordRecord, probeCount: number, connectors: Set<string>): number {
   const coverage = Math.min(1, record.hits / Math.max(3, probeCount * 0.35));
   const rankScore = Math.max(0, 1 - (record.bestRank - 1) / 11);
-  const depthPenalty = record.depth >= 7 ? 0.82 : record.depth >= 5 ? 0.93 : 1;
+  const meaning = record.keyword
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !connectors.has(w) && !/^\d+$/.test(w)).length;
+  const depthPenalty = meaning >= 7 ? 0.9 : 1;
   const raw = (coverage * 0.55 + rankScore * 0.45) * depthPenalty;
   return Math.round(Math.max(0, Math.min(1, raw)) * 100);
 }
