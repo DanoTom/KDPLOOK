@@ -743,6 +743,33 @@ de la app con una cifra sin fuente de un asistente de compra — es exactamente 
 error contra el que va todo lo demás. Queda anotado como un indicio más a favor
 de calibrar con ventas reales de KDP.
 
+### Segunda tanda de la IA de Amazon
+
+Seis puntos más. Tres no son accionables: la ventana de indexación es táctica de
+lanzamiento y no un dato; las portadas necesitan visión computacional y
+correlacionar sin poder medir es justo lo que aquí no se hace; y las burbujas de
+relevancia por segmento no se observan desde fuera. Dos sí, y **ninguno entró
+como señal nueva** —ya hay doce— sino como corrección de lecturas que la app ya
+hacía:
+
+**Un solo vendedor se leía al revés la mitad de las veces.** Cuando la puerta de
+demanda falla con «líder sin pelotón», el titular decía *«todo depende de un
+solo libro»*, que es una advertencia. Pero la misma página se lee igual de bien
+como demanda que Amazon no tiene con qué llenar. El discriminante está en el
+propio líder: **si lleva años ahí con reseñas de sobra, la estantería es suya;
+si es reciente o va flojo de prueba social, nadie ha entrado todavía.** Ahora el
+titular distingue las dos.
+
+**Vender sin una sola reseña** es la lectura más limpia de si la prueba social
+es el muro. Va dentro de «rivales flojos», no aparte. Dos detalles: cuenta cero
+estricto —una reseña sin leer no es cero, el fallo que ya mordió dos veces— y el
+listón de «todavía vende» es el rango semanal de esta tienda, no un 100.000
+redondo, que llamaría vivo a medio .es y a nada de .com.
+
+Descartado por acumulación, no por malo: la longitud óptima del título. Es la
+misma maquinaria de bandas que el precio, pero sería la señal trece y el informe
+ya está al límite de lo que se lee.
+
 ### Lo que sigue pendiente
 
 - **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,

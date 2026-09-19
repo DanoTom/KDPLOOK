@@ -482,6 +482,19 @@ console.log("\ncriterios de entrada del operador");
   check("un solo vendedor es 'sin-peloton'",
     reviewExpertise(soloUno, { marketplace: "es", totalResults: 800, settings }).demandShape, "sin-peloton");
 
+  // Y un solo vendedor se lee de dos maneras opuestas según quién sea.
+  const solitarioNuevo = summariseNiche(
+    soloUno.map((x, i) => (i === 0 ? { ...x, ageMonths: 5, reviews: 12 } : x)),
+    { keyword: "k", marketplace: "es", settings, totalResults: 800, resultsCountText: null });
+  truthy("si el único que vende no está atrincherado, es demanda sin cubrir",
+    solitarioNuevo.verdict.headline.includes("nadie ha entrado"));
+
+  const solitarioViejo = summariseNiche(
+    soloUno.map((x, i) => (i === 0 ? { ...x, ageMonths: 70, reviews: 900 } : x)),
+    { keyword: "k", marketplace: "es", settings, totalResults: 800, resultsCountText: null });
+  truthy("y si lleva años con reseñas de sobra, la estantería es suya",
+    solitarioViejo.verdict.headline.includes("suya"));
+
   // And a page where nothing sells keeps the original text and the extra step.
   const muerto = Array.from({ length: 10 }, (_, i) => b(i + 1, { bsr: 900_000 + i * 1_000, ageMonths: 8 + i * 9 }));
   const vMuerto = summariseNiche(muerto,
@@ -1609,6 +1622,26 @@ console.log("\nlo que envenenaba las cifras del nicho");
     ...Array.from({ length: 4 }, (_, i) => base(i + 5, { reviews: null })),
   ]);
   check("y la proporción se calcula sobre las leídas", mitad.lowReviewShare, 1);
+
+  // --- vender sin una sola reseña ------------------------------------------
+  // Es la lectura más limpia de si la prueba social es el muro: si se compra
+  // desde el resultado de búsqueda, un libro nuevo no queda bloqueado.
+  const sinResenas = scan(Array.from({ length: 10 }, (_, i) => base(i + 1, {
+    reviews: i < 3 ? 0 : 60, bsr: 12_000,
+  })));
+  check("cuenta los que venden sin ninguna reseña", sinResenas.sellingWithoutReviews, 3);
+  truthy("y lo dice donde se habla de rivales flojos",
+    Boolean(sinResenas.signals.find((sig) => sig.id === "weak")?.hint.includes("sin tener ni una")));
+
+  // Cero de verdad, no «no se pudo leer»: el fallo que ya nos mordió dos veces.
+  check("una reseña sin leer no es cero reseñas",
+    scan(Array.from({ length: 10 }, (_, i) => base(i + 1, { reviews: null, bsr: 12_000 })))
+      .sellingWithoutReviews, 0);
+
+  // Y sin vender no cuenta: cero reseñas y BSR muerto es solo un libro muerto.
+  check("cero reseñas sin ranking que venda no cuenta",
+    scan(Array.from({ length: 10 }, (_, i) => base(i + 1, { reviews: 0, bsr: 900_000 })))
+      .sellingWithoutReviews, 0);
 
   // --- el precio que de verdad rankea en este nicho ------------------------
   // Los baratos arriba, los caros enterrados: hay patrón y se dice cuál.

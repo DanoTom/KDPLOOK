@@ -93,6 +93,16 @@ export interface NicheSummary {
   totalRevenuePerMonth: number | null;
   selfPublishedShare: number | null;   // 0-1
   lowReviewShare: number | null;       // 0-1, books under the "weak" review threshold
+  /**
+   * Page-one books with a rank that sells and not one review.
+   *
+   * The cleanest read there is on whether social proof is the barrier here: a
+   * title moving copies with zero reviews is converting on the search result
+   * alone, which means a newcomer is not locked out until it earns a wall of
+   * them. Strictly zero — a review count that failed to parse is not evidence
+   * of anything.
+   */
+  sellingWithoutReviews: number;
   freshShare: number | null;           // 0-1, books published in the last 18 months
   avgPages: number | null;
   medianAgeMonths: number | null;

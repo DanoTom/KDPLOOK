@@ -3,7 +3,7 @@ import type {
 } from "../types";
 import { calibrationFor, salesPerMonth } from "./bsr";
 import type { DemandShape } from "./checklist";
-import { RESULTS_GREEN, RESULTS_LIMIT, reviewExpertise } from "./checklist";
+import { RESULTS_GREEN, RESULTS_LIMIT, demandBsrFor, reviewExpertise } from "./checklist";
 import { isPublishableBook, reviewsPerMonth } from "./book";
 import { LAUNCH_MONTHS } from "./reliability";
 import { estimateRoyaltyPerUnit } from "./royalty";
@@ -210,6 +210,14 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     ? reviewed.filter((b) => (b.reviews as number) < settings.weakReviewThreshold).length / reviewed.length
     : null;
 
+  // Selling with nothing to vouch for it. The bar is this store's own weekly
+  // sale rank rather than a round number: what counts as "still moving" is
+  // three times deeper in Spain than on .com, and a fixed 100.000 would call
+  // half of a Spanish page alive and none of an American one.
+  const sellingWithoutReviews = settled.filter(
+    (b) => b.reviews === 0 && b.bsr !== null && b.bsr <= demandBsrFor(marketplace) * 3,
+  ).length;
+
   const freshShare = ages.length
     ? ages.filter((a) => a <= 18).length / ages.length
     : null;
@@ -291,6 +299,7 @@ export function summariseNiche(items: BookRecord[], opts: ScoreOptions): NicheSu
     totalRevenuePerMonth: revenues.length ? round(revenues.reduce((a, b) => a + b, 0), 2) : null,
     selfPublishedShare: round(selfPublishedShare, 3),
     lowReviewShare: round(lowReviewShare, 3),
+    sellingWithoutReviews,
     freshShare: round(freshShare, 3),
     avgPages: round(mean(pages), 0),
     medianAgeMonths: round(median(ages), 1),
@@ -456,7 +465,10 @@ function buildSignals(s: NicheSummary, settings: AppSettings, currency: string):
     label: "Rivales flojos",
     value: pct(s.lowReviewShare),
     tone: s.lowReviewShare === null ? "neutral" : s.lowReviewShare >= 0.5 ? "good" : s.lowReviewShare >= 0.3 ? "warn" : "bad",
-    hint: `Porcentaje del top 20 con menos de ${settings.weakReviewThreshold} reseñas.`,
+    hint: `Porcentaje del top 20 con menos de ${settings.weakReviewThreshold} reseñas.` +
+      (s.sellingWithoutReviews >= 2
+        ? ` Y algo más limpio todavía: ${s.sellingWithoutReviews} venden sin tener ni una reseña. Aquí la prueba social no es el muro — la gente compra desde el resultado de búsqueda, así que un libro nuevo no queda bloqueado hasta juntar cien valoraciones.`
+        : ""),
   });
 
   signals.push({
@@ -545,8 +557,22 @@ const NON_BOOK_INTENT = 0.2;
  * away. It never raises one: a niche the gates like can still be a bad idea.
  */
 /** The verdict line for a failed demand gate, matched to how it failed. */
-function demandHeadline(shape: DemandShape | null, failed: boolean): string | null {
+function demandHeadline(review: ReturnType<typeof reviewExpertise>, failed: boolean): string | null {
   if (!failed) return null;
+  const shape: DemandShape | null = review.demandShape;
+  // One book selling and nothing behind it is either somebody's shelf or a
+  // demand Amazon cannot fill, and the app used to report only the first. The
+  // leader itself is the discriminator: old and entrenched, it is theirs;
+  // recent or thin on social proof, nobody has taken the opening yet.
+  if (shape === "sin-peloton" && review.loneLeader) {
+    const { ageMonths, reviews } = review.loneLeader;
+    const young = ageMonths !== null && ageMonths <= 12;
+    const thin = reviews !== null && reviews < review.profile.beatableReviews;
+    if (young || thin) {
+      return "Un solo libro sostiene el nicho y no está atrincherado: hay demanda que Amazon no tiene con qué llenar y nadie ha entrado todavía.";
+    }
+    return "Un solo libro sostiene el nicho, y lleva tiempo ahí con reseñas de sobra: esa estantería es suya y desplazarlo es el trabajo entero.";
+  }
   switch (shape) {
     case "vacia":
       return "Se busca, pero aquí no vende nadie: entrar mejor no arregla que no haya compradores.";
@@ -593,7 +619,7 @@ function capByGates(verdict: Verdict, review: ReturnType<typeof reviewExpertise>
     ...verdict,
     label: capped,
     tone: VERDICT_TONE[capped],
-    headline: demandHeadline(review.demandShape, failedDemand) ?? verdict.headline,
+    headline: demandHeadline(review, failedDemand) ?? verdict.headline,
     reasoning: [
       ...verdict.reasoning,
       `Rebajado de «${verdict.label}» a «${capped}»: no cumple ${reasons.join(" ni ")}. ` +

@@ -49,6 +49,15 @@ export interface ExpertReview {
   gates: Gate[];
   /** Null when no rank could be read, so the gate was not evaluated. */
   demandShape: DemandShape | null;
+  /**
+   * The one book holding a niche up, when there is only one.
+   *
+   * A page with a seller and nothing behind it reads two opposite ways, and
+   * which one is right depends entirely on who that seller is. Entrenched and
+   * old: it is their shelf. Recent, or thin on reviews: Amazon has demand it
+   * cannot fill, and nobody has walked through the door yet.
+   */
+  loneLeader: { ageMonths: number | null; reviews: number | null } | null;
   passed: number;
   evaluated: number;
   flags: RedFlag[];
@@ -224,6 +233,12 @@ export function reviewExpertise(
     profile,
     profileCaveat: formatCaveat(items, contentType),
     demandShape,
+    loneLeader: demandShape === "sin-peloton"
+      ? (() => {
+          const book = selling.slice().sort((a, b) => (a.bsr ?? Infinity) - (b.bsr ?? Infinity))[0];
+          return book ? { ageMonths: book.ageMonths, reviews: book.reviews } : null;
+        })()
+      : null,
     flags: detectRedFlags(items, { marketplace, totalResults, demandBsr, selling, steady, page1 }),
     // A clean sweep of one gate is not a clean sweep: with three of the four
     // unevaluable there is no reading to be enthusiastic about.
