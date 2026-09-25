@@ -82,6 +82,8 @@ export function useNicheScan(settings: AppSettings) {
     let emptyDepartment = false;
     let crossDepartment = false;
     let pageHint: string | null = null;
+    let cardsSeen = 0;
+    let pageBytes: number | null = null;
     const started = Date.now();
 
     setProgress({ phase: "search", label: "Leyendo resultados de búsqueda…", done: 0, total: pages });
@@ -105,6 +107,10 @@ export function useNicheScan(settings: AppSettings) {
         if (page === 1 && response.noResults) emptyDepartment = true;
         if (page === 1 && response.crossDepartment) crossDepartment = true;
         if (page === 1 && response.pageHint) pageHint = response.pageHint;
+        if (page === 1) {
+          cardsSeen = response.cardsSeen ?? 0;
+          pageBytes = response.bytes ?? null;
+        }
         if (response.warning) warnings.push(`Página ${page}: ${response.warning}`);
         for (const item of response.items) {
           // Later pages repeat sponsored placements; keep the first sighting.
@@ -170,16 +176,28 @@ export function useNicheScan(settings: AppSettings) {
               : "Prueba con otro departamento o con una variante de la frase.",
             blocked: false,
           }
-        : {
-            message: "Amazon respondió, pero no se reconoció ningún libro.",
-            // The page's own opening line, so a report of this can be acted on
-            // instead of guessed at: Amazon is not reachable from where this
-            // code is developed, and the parser cannot be fixed blind.
-            hint: pageHint
-              ? `La página empezaba así: «${pageHint}». Cópiala tal cual si nos hace falta arreglar el lector.`
-              : "Prueba otra palabra clave o revisa la pestaña Diagnóstico para comprobar los selectores.",
-            blocked: false,
-          });
+        : cardsSeen > 0
+          // Cards arrived and not one yielded a title: that is this reader
+          // failing on markup it does not know, and the only failure here that
+          // is ours to fix. Worth saying so, and worth a report.
+          ? {
+              message: `Amazon envió ${cardsSeen} resultados, pero el lector no supo leer ninguno.`,
+              // Not the browser path: the bookmarklet sends the page back to
+              // this same reader, so it would fail identically. The fix is in
+              // the code, and it needs to see the card that did not parse.
+              hint: "Es un fallo de la app, no de la búsqueda: Amazon ha cambiado cómo pinta las tarjetas y hay que ajustar el lector. En Diagnóstico, pega la URL de esta búsqueda y envía lo que muestra de la primera tarjeta: con eso se arregla.",
+              blocked: false,
+            }
+          // No cards at all on a full-sized page: Amazon served something
+          // other than a results page. Its opening line says what.
+          : {
+              message: "Amazon respondió con una página que no es de resultados.",
+              hint: (pageHint
+                ? `Empezaba así: «${pageHint}». `
+                : pageBytes !== null ? `Llegaron ${Math.round(pageBytes / 1024)} KB sin ningún resultado dentro. ` : "") +
+                "Suele ser algo que Amazon le sirve a un servidor y no a una persona. Vuelve a intentarlo; si se repite con esta búsqueda, léela desde tu navegador (Ajustes → Leer Amazon desde tu navegador).",
+              blocked: false,
+            });
       return;
     }
 

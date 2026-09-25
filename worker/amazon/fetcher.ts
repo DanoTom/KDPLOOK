@@ -58,6 +58,23 @@ const BLOCK_MARKERS = [
   "automated access",
 ];
 
+/**
+ * Below this, an HTML answer is not an Amazon page.
+ *
+ * A real search or product page runs to hundreds of kilobytes; even Amazon's
+ * own "no results" page carries the full navigation and weighs well over this.
+ * What arrives smaller is an empty body, a proxy error, or a script-only shell
+ * — and it used to be accepted as a success, because it was a 200 without a
+ * captcha in it. That turned a momentary refusal into "Amazon respondió, pero
+ * no se reconoció ningún libro", on searches that plainly have hundreds of
+ * books when you open them in a browser.
+ */
+export const HOLLOW_PAGE_BYTES = 15_000;
+
+export function isHollowPage(body: string): boolean {
+  return body.length < HOLLOW_PAGE_BYTES;
+}
+
 export function looksBlocked(status: number, body: string): boolean {
   if (status === 503 || status === 429 || status === 403) return true;
   if (!body) return false;
@@ -236,8 +253,13 @@ export async function fetchPage(
       lastStatus = res.status;
       lastBody = await res.text();
       const blocked = looksBlocked(res.status, lastBody);
+      // A hollow page is a refusal wearing a 200, and it is exactly the case
+      // the retry loop exists for: the same URL usually answers properly a
+      // moment later with a different fingerprint. Not applied to the JSON
+      // endpoints, whose honest answers are a few hundred bytes long.
+      const hollow = !opts.json && res.ok && !blocked && isHollowPage(lastBody);
 
-      if (res.ok && !blocked) {
+      if (res.ok && !blocked && !hollow) {
         return {
           ok: true, status: res.status, body: lastBody, blocked: false,
           provider, ms: Date.now() - started, url: targetUrl, attempts: attempt,
@@ -249,9 +271,13 @@ export async function fetchPage(
         continue;
       }
       return {
-        ok: false, status: res.status, body: lastBody, blocked,
+        ok: false, status: res.status, body: lastBody, blocked: blocked || hollow,
         provider, ms: Date.now() - started, url: targetUrl, attempts: attempt,
-        error: blocked ? "Amazon respondió con una verificación anti-bot." : `HTTP ${res.status}`,
+        error: blocked
+          ? "Amazon respondió con una verificación anti-bot."
+          : hollow
+            ? `Amazon devolvió una página vacía (${lastBody.length} bytes) ${attempt} veces seguidas.`
+            : `HTTP ${res.status}`,
       };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);

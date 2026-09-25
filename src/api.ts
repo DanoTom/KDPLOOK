@@ -65,6 +65,8 @@ export interface SearchPageResponse {
   /** The opening text of the results area, when nothing could be parsed. */
   pageHint?: string | null;
   warning?: string;
+  cardsSeen?: number;
+  bytes?: number;
 }
 
 export interface ProductDetailDto {

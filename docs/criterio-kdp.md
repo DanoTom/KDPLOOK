@@ -770,6 +770,37 @@ Descartado por acumulación, no por malo: la longitud óptima del título. Es la
 misma maquinaria de bandas que el precio, pero sería la señal trece y el informe
 ya está al límite de lo que se lee.
 
+## «No se reconoció ningún libro» con 272 libros a la vista (sept. 2026)
+
+«crazy but true facts» en amazon.com: una persona ve *1-16 of 272 results*, la
+app decía «Amazon respondió, pero no se reconoció ningún libro», y lo seguía
+diciendo cada vez que se volvía a pulsar Analizar. Eran tres fallos
+encadenados:
+
+1. **Una página vacía contaba como éxito.** El descargador aceptaba cualquier
+   200 sin captcha, incluida una respuesta de cero bytes. Tenía tres intentos y
+   no gastaba ninguno en eso. Ahora una página HTML de menos de 15 KB es
+   «hueca» —una página real de Amazon pesa cientos— y se reintenta; si sigue
+   hueca, es un fallo con nombre y tamaño. No se aplica al autocompletado, cuyas
+   respuestas honestas ocupan unos cientos de bytes.
+2. **Ese fallo se guardaba en caché doce horas.** Cada nuevo intento devolvía el
+   fallo guardado al instante, sin preguntar a Amazon. Convertía un rechazo
+   momentáneo en medio día sin poder analizar esa búsqueda.
+3. **En «¿Aparece en las búsquedas?» era peor**: una lectura vacía guardada
+   decía durante doce horas que el libro no aparecía.
+
+Regla única, en `worker/cache-rules.ts`: solo se recuerda una lectura que sirve
+—una búsqueda con libros o el «no hay resultados» genuino de Amazon, una ficha
+con título, una categoría con libros o ramas—, y las entradas vacías que ya
+estaban en caché se ignoran al leerlas, así que el daño previo se limpia solo al
+desplegar.
+
+Y el mensaje ahora distingue los dos fallos que compartían texto: **una página
+sin ninguna tarjeta** es Amazon sirviendo otra cosa, y se arregla leyendo desde
+el navegador; **tarjetas que no dan ni un título** es el lector fallando con un
+marcado nuevo, y ahí el navegador *no* ayuda —el bookmarklet manda la página a
+este mismo lector—: hay que arreglar el código, con lo que enseña Diagnóstico.
+
 ### Lo que sigue pendiente
 
 - **Los primeros 30 días**: hay un calendario con umbrales (CTR ≥ 0,75 %,

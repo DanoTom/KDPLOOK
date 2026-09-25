@@ -7,6 +7,7 @@ import { computeRoyalty, estimateRoyaltyPerUnit } from "../shared/analytics/roya
 import { calibrationFor, salesPerMonth } from "../shared/analytics/bsr";
 import { APP_VERSION, type Env } from "./env";
 import { authEnabled, checkPassword, clearSessionCookie, createSessionCookie, isAuthenticated } from "./auth";
+import { usableCategory, usableDetail, usableList, usableSearch } from "./cache-rules";
 import {
   DEFAULT_SETTINGS, addWatch, cacheGet, cachePurge, cacheSet, dbReady, deleteKeywordRun, deleteNiche,
   getHistory, getKeywordRun, getNiche, listKeywordRuns, listNiches, listWatch, loadSettings, logFetch,
@@ -267,7 +268,7 @@ app.post("/api/scan/search", async (c) => {
 
   if (!body.noCache) {
     const cached = await cacheGet<SearchResponse>(c.env, cacheKey);
-    if (cached) return c.json({ ...cached, fromCache: true });
+    if (usableSearch(cached)) return c.json({ ...cached, fromCache: true });
   }
 
   const outcome = await fetchPage(c.env, settings, url, { language: marketplace.language, attempts: 3 });
@@ -277,12 +278,19 @@ app.post("/api/scan/search", async (c) => {
       ok: false, blocked: outcome.blocked, ms: outcome.ms, parsed: 0, detail: outcome.error ?? "",
     });
     return c.json({
-      error: outcome.blocked ? "Amazon bloqueó la petición" : "No se pudo leer la página de resultados",
+      error: outcome.blocked ? "Amazon no entregó la página de resultados" : "No se pudo leer la página de resultados",
       detail: outcome.error,
       blocked: outcome.blocked,
-      hint: outcome.blocked
-        ? "Espera unos minutos, reduce las páginas por escaneo o configura un proveedor de scraping en Ajustes."
-        : undefined,
+      // The cause first, because it is what tells a refusal apart from a bug,
+      // and it used to be dropped in favour of generic advice. Then the two
+      // things that actually help: another attempt now asks Amazon afresh —
+      // failures are no longer remembered — and the browser path, which reads
+      // with the person's own session and does not get this treatment.
+      hint: [
+        outcome.error,
+        "Vuelve a pulsar Analizar: el fallo ya no se guarda, así que el siguiente intento pregunta a Amazon de nuevo.",
+        "Si se repite con esta búsqueda, léela desde tu navegador (Ajustes → Leer Amazon desde tu navegador): Amazon no le hace esto a una persona.",
+      ].filter(Boolean).join(" "),
     }, 502);
   }
 
@@ -304,6 +312,8 @@ app.post("/api/scan/search", async (c) => {
     noResults: parsed.noResults,
     crossDepartment: parsed.crossDepartment,
     pageHint: parsed.pageHint,
+    cardsSeen: parsed.rawItemCount,
+    bytes: outcome.body.length,
     warning: parsed.items.length === 0
       ? (parsed.noResults
           // Amazon's own answer, not a parsing failure. Sending the operator to
@@ -313,7 +323,7 @@ app.post("/api/scan/search", async (c) => {
       : undefined,
   };
 
-  await cacheSet(c.env, cacheKey, response, settings.cacheTtlHours);
+  if (usableSearch(response)) await cacheSet(c.env, cacheKey, response, settings.cacheTtlHours);
   return c.json(response);
 });
 
@@ -330,6 +340,14 @@ interface SearchResponse {
   crossDepartment?: boolean;
   /** What the page said where the results should have been, when nothing parsed. */
   pageHint?: string | null;
+  /**
+   * Result cards found on the page, parsed or not, and its size. Together they
+   * separate the two failures that used to share one message: a page with no
+   * cards at all is Amazon serving something else, while cards that would not
+   * yield a single title is this reader failing on markup it does not know.
+   */
+  cardsSeen?: number;
+  bytes?: number;
   fromCache: boolean;
   warning?: string;
 }
@@ -347,7 +365,7 @@ app.post("/api/scan/enrich", async (c) => {
     const cacheKey = `product:${marketplace.id}:${asin}`;
     if (!body.noCache) {
       const cached = await cacheGet<ProductDetail>(c.env, cacheKey);
-      if (cached) return { asin, detail: cached, cached: true, blocked: false };
+      if (usableDetail(cached)) return { asin, detail: cached, cached: true, blocked: false };
     }
     const url = productUrl(marketplace, asin);
     const outcome = await fetchPage(c.env, settings, url, { language: marketplace.language, attempts: 2 });
@@ -364,7 +382,7 @@ app.post("/api/scan/enrich", async (c) => {
       ok: true, blocked: false, ms: outcome.ms, parsed: detail.bsr ? 1 : 0,
       detail: detail.bsr ? "" : "sin BSR reconocido",
     });
-    await cacheSet(c.env, cacheKey, detail, settings.cacheTtlHours);
+    if (usableDetail(detail)) await cacheSet(c.env, cacheKey, detail, settings.cacheTtlHours);
     return { asin, detail, cached: false, blocked: false };
   });
 
@@ -523,6 +541,7 @@ app.post("/api/scan/rank", async (c) => {
     const query = `${keyword} ${titleProbe}`;
     const cacheKey = `rankprobe:${marketplace.id}:${department}:${query.toLowerCase()}`;
     let parsed = await cacheGet<{ asins: string[]; count: number }>(c.env, cacheKey);
+    if (!usableList(parsed)) parsed = null;
     if (!parsed) {
       const outcome = await fetchPage(c.env, settings, searchUrl(marketplace, query, 1, department), {
         language: marketplace.language, attempts: 1,
@@ -531,7 +550,7 @@ app.post("/api/scan/rank", async (c) => {
       const search = parseSearchPage(outcome.body, marketplace, 0, 60);
       const organic = search.items.filter((item) => !item.sponsored);
       parsed = { asins: organic.map((item) => item.asin), count: organic.length };
-      await cacheSet(c.env, cacheKey, parsed, settings.cacheTtlHours);
+      if (usableList(parsed)) await cacheSet(c.env, cacheKey, parsed, settings.cacheTtlHours);
     }
     if (parsed.asins.includes(asin)) return true;
     // An empty narrowed search proves nothing either way.
@@ -546,6 +565,7 @@ app.post("/api/scan/rank", async (c) => {
       const url = searchUrl(marketplace, keyword, page, department);
       const cacheKey = `rank:${marketplace.id}:${department}:${keyword.toLowerCase()}:${page}`;
       let parsed = await cacheGet<{ asins: string[]; total: number | null; count: number }>(c.env, cacheKey);
+      if (!usableList(parsed)) parsed = null;
 
       if (!parsed) {
         const outcome = await fetchPage(c.env, settings, url, { language: marketplace.language, attempts: 2 });
@@ -556,7 +576,7 @@ app.post("/api/scan/rank", async (c) => {
         // Only the organic ranking matters: an ad placement is bought, not earned.
         const organic = search.items.filter((item) => !item.sponsored);
         parsed = { asins: organic.map((item) => item.asin), total: search.totalResults, count: organic.length };
-        await cacheSet(c.env, cacheKey, parsed, settings.cacheTtlHours);
+        if (usableList(parsed)) await cacheSet(c.env, cacheKey, parsed, settings.cacheTtlHours);
       }
 
       if (page === 1) totalResults = parsed.total;
@@ -607,7 +627,7 @@ app.post("/api/category/list", async (c) => {
 
   if (!body.noCache) {
     const cached = await cacheGet<Record<string, unknown>>(c.env, cacheKey);
-    if (cached) return c.json({ ...cached, fromCache: true });
+    if (usableCategory(cached)) return c.json({ ...cached, fromCache: true });
   }
 
   const outcome = await fetchPage(c.env, settings, url, { language: marketplace.language, attempts: 3 });
@@ -643,7 +663,7 @@ app.post("/api/category/list", async (c) => {
       ? "La página se descargó pero no se reconoció ningún libro. Mira Diagnóstico."
       : undefined,
   };
-  await cacheSet(c.env, cacheKey, payload, settings.cacheTtlHours);
+  if (usableCategory(payload)) await cacheSet(c.env, cacheKey, payload, settings.cacheTtlHours);
   return c.json(payload);
 });
 
@@ -661,6 +681,7 @@ app.get("/api/book/:asin", async (c) => {
   const cacheKey = `product:${marketplace.id}:${asin}`;
 
   let detail = noCache ? null : await cacheGet<ProductDetail>(c.env, cacheKey);
+  if (!usableDetail(detail)) detail = null;
   let provider = settings.provider;
 
   if (!detail) {
@@ -678,7 +699,7 @@ app.get("/api/book/:asin", async (c) => {
       }, 502);
     }
     detail = parseProductPage(outcome.body, asin);
-    await cacheSet(c.env, cacheKey, detail, settings.cacheTtlHours);
+    if (usableDetail(detail)) await cacheSet(c.env, cacheKey, detail, settings.cacheTtlHours);
   }
 
   const history = await getHistory(c.env, asin, marketplace.id);
@@ -829,7 +850,7 @@ async function snapshotWatchlist(
       salesEst: sales, revenueEst: sales !== null && royalty !== null ? Math.round(sales * royalty * 100) / 100 : null,
       categoryRanks: detail.categoryRanks,
     });
-    await cacheSet(env, `product:${marketplace.id}:${item.asin}`, detail, settings.cacheTtlHours);
+    if (usableDetail(detail)) await cacheSet(env, `product:${marketplace.id}:${item.asin}`, detail, settings.cacheTtlHours);
     updated += 1;
   });
   return updated;

@@ -26,6 +26,8 @@ import { CONTENT_PROFILES, inferContentType } from "../shared/analytics/content"
 import { analyseTitles, searchGuesses } from "../shared/analytics/titles";
 import { reviewsPerMonth } from "../shared/analytics/book";
 import { isAboutSeed, isMerchPhrase } from "../worker/amazon/suggest";
+import { isHollowPage } from "../worker/amazon/fetcher";
+import { usableCategory, usableDetail, usableList, usableSearch } from "../worker/cache-rules";
 import {
   HIDDEN_CATEGORY_SLOTS, categoryRequestEmail, readPlacements,
 } from "../shared/analytics/placement";
@@ -1502,6 +1504,35 @@ console.log("\ntarifas de impresion deducidas de libros propios");
   check("un coste que baja con las paginas se rechaza",
     solvePrintingRates([{ pages: 200, cost: 5 }, { pages: 400, cost: 3 }], 108).perPage, null);
   check("y sin muestras no inventa nada", solvePrintingRates([], 108).flatFee, null);
+}
+
+console.log("\nun fallo de amazon no se guarda ni se cree");
+{
+  // «crazy but true facts» en .com: 272 resultados para una persona y «no se
+  // reconoció ningún libro» para la app, de forma persistente. Tres fallos
+  // encadenados: una página vacía aceptada como éxito, sin reintentar, y
+  // guardada en caché doce horas.
+  truthy("una respuesta vacía es una página hueca", isHollowPage(""));
+  truthy("y una de pocos kilobytes también", isHollowPage("<html><body>ok</body></html>"));
+  check("pero una página de verdad no", isHollowPage("x".repeat(400_000)), false);
+
+  // Lo que se guarda.
+  check("una búsqueda sin libros no se recuerda", usableSearch({ items: [] }), false);
+  truthy("la que trae libros sí", usableSearch({ items: [{}] }));
+  truthy("y el «no hay resultados» de Amazon también: es una respuesta de verdad",
+    usableSearch({ items: [], noResults: true }));
+  check("ni se cree una vacía que ya estaba en caché", usableSearch(null), false);
+
+  check("una ficha sin título ni ranking es un cascarón", usableDetail({ title: null, bsr: null }), false);
+  truthy("una ficha leída de verdad se guarda", usableDetail({ title: "Libro", bsr: null }));
+
+  // «¿Aparece en las búsquedas?»: una lectura vacía guardada decía durante
+  // doce horas que el libro era invisible.
+  check("una búsqueda vacía no dice que el libro no aparece", usableList({ asins: [], count: 0 }), false);
+  truthy("una con resultados sí cuenta", usableList({ asins: ["B000000001"], count: 1 }));
+
+  check("una categoría sin libros ni ramas no se guarda", usableCategory({ asins: [], children: [] }), false);
+  truthy("pero una raíz que solo trae ramas sí", usableCategory({ asins: [], children: [{ node: "1" }] }));
 }
 
 console.log("\nsugerencias que se van del tema");
